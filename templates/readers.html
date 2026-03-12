@@ -3,156 +3,110 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Управление читателями | Твердый переплет</title>
+    <title>Читатели | Твердый переплет</title>
     <link rel="icon" href="../static/img/icon.png" type="image/x-icon">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.mask/1.14.16/jquery.mask.min.js"></script>
     <link rel="stylesheet" href="../static/css/styles.css">
     <link rel="stylesheet" href="../static/css/readers.css">
 </head>
 <body>
-    <div class="container">
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <h2>
-                    <i class="fas fa-graduation-cap"></i>
-                    <span>Твердый переплет</span>
-                </h2>
-            </div>
-            <nav class="sidebar-nav">
-                <ul>
-                    <li><a href="/" class="active"><i class="fas fa-tachometer-alt"></i>Главная</a></li>
+<div class="container">
+    <aside class="sidebar">
+        <div class="sidebar-header"><h2><i class="fas fa-graduation-cap"></i><span>Твердый переплет</span></h2></div>
+        <nav class="sidebar-nav">
+            <ul>
+                <li><a href="/"><i class="fas fa-tachometer-alt"></i>Главная</a></li>
+                <li><a href="/books"><i class="fas fa-book"></i>Каталог книг</a></li>
+                <li><a href="/readers" class="active"><i class="fas fa-users"></i>Читатели</a></li>
+                <li><a href="/transactions"><i class="fas fa-exchange-alt"></i>Выдачи/возвраты</a></li>
+                <li><a href="/supplies"><i class="fas fa-truck"></i>Поставки</a></li>
+                <li><a href="/reports"><i class="fas fa-chart-bar"></i>Отчеты</a></li>
+                {% if role == 'Администратор' %}<li><a href="/settings"><i class="fas fa-cog"></i>Настройки</a></li>{% endif %}
+            </ul>
+        </nav>
+    </aside>
 
-                    {% if role in ['Администратор', 'Библиотекарь'] %}
-                    <li><a href="/books"><i class="fas fa-book"></i>Каталог книг</a></li>
-                    <li><a href="/readers"><i class="fas fa-users"></i>Читатели</a></li>
-                    <li><a href="/transactions"><i class="fas fa-exchange-alt"></i>Выдачи/возвраты</a></li>
-                    {% endif %}
+    <main class="main-content">
+        <header class="header">
+            <h1>Читатели</h1>
+            <a href="{{ url_for('logout') }}" class="logout-btn" title="Выйти"><i class="fas fa-sign-out-alt"></i></a>
+        </header>
 
-                    {% if role == 'Бухгалтер' or role == 'Администратор' %}
-                    <li><a href="/reports"><i class="fas fa-chart-bar"></i>Отчеты</a></li>
-                    {% endif %}
+        <div class="tabs">
+            <div class="tab active" onclick="showTab('add-reader')">Регистрация</div>
+            <div class="tab" onclick="showTab('search-reader')">Список и поиск</div>
+        </div>
 
-                    {% if role == 'Администратор' %}
-                    <li><a href="/settings"><i class="fas fa-cog"></i>Настройки</a></li>
-                    {% endif %}
-                </ul>
-            </nav>
-        </aside>
-
-        <main class="main-content">
-            <header class="header">
-                <h1>Управление читателями</h1>
-                <div class="user-menu">
-                    <div class="user-info">
-                        <strong>{{ current_user.first_name }} {{ current_user.last_name }}</strong><br>
-                        <span class="user-role">{{ current_user.role }}</span>
-                    </div>
-                    <div class="user-avatar">
-                        {{ current_user.first_name[0] }}{{ current_user.last_name[0] }}
-                    </div>
-                    <a href="{{ url_for('logout') }}" class="logout-btn" title="Выйти">
-                        <i class="fas fa-sign-out-alt"></i>
-                    </a>
+        <div id="add-reader" class="tab-content">
+            <div class="form-container" id="add-reader-form">
+                <h2 class="form-title">Новый читатель</h2>
+                <div class="form-row">
+                    <div class="form-group"><label>Фамилия*</label><input type="text" id="last-name" class="form-control" required></div>
+                    <div class="form-group"><label>Имя*</label><input type="text" id="first-name" class="form-control" required></div>
+                    <div class="form-group"><label>Отчество</label><input type="text" id="patronymic" class="form-control"></div>
                 </div>
-            </header>
-
-            <div class="tabs">
-                <div class="tab active" onclick="showTab('add-reader')">Добавить читателя</div>
-                <div class="tab" onclick="showTab('search-reader')">Поиск читателей</div>
-            </div>
-
-            <div id="add-reader" class="tab-content">
-                <div class="form-container" id="add-reader-form">
-                    <h2 class="form-title">Регистрация нового читателя</h2>
-
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="last-name">Фамилия*</label>
-                            <input type="text" id="last-name" class="form-control" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="first-name">Имя*</label>
-                            <input type="text" id="first-name" class="form-control" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="patronymic">Отчество</label>
-                            <input type="text" id="patronymic" class="form-control">
-                        </div>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="birthdate">Дата рождения*</label>
-                            <input type="date" id="birthdate" class="form-control" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="phone">Телефон*</label>
-                            <input type="tel" id="phone" class="form-control" placeholder="+7 (___) ___-__-__" maxlength="18" required>
-                        </div>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="address">Адрес проживания*</label>
-                            <input type="adress" id="address" class="form-control" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="email">Эл. почта*</label>
-                            <input type="email" id="email" class="form-control" required>
-                        </div>
-                    </div>
-
-                    <div class="btn-group">
-                        <button class="btn btn-secondary" onclick="resetReaderForm()">Отмена</button>
-                        <button class="btn btn-primary" onclick="saveReader()">Сохранить</button>
-                    </div>
+                <div class="form-row">
+                    <div class="form-group"><label>Дата рождения*</label><input type="date" id="birthdate" class="form-control" required></div>
+                    <div class="form-group"><label>Телефон*</label><input type="tel" id="phone" class="form-control" required></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group"><label>Адрес*</label><input type="text" id="address" class="form-control" required></div>
+                    <div class="form-group"><label>Email*</label><input type="email" id="email" class="form-control" required></div>
+                </div>
+                <div class="form-group">
+                    <label><input type="checkbox" id="pd-consent"> Я соглашаюсь на обработку персональных данных*</label>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-secondary" onclick="resetReaderForm()">Очистить</button>
+                    <button class="btn btn-primary" onclick="saveReader()">Зарегистрировать</button>
                 </div>
             </div>
+        </div>
 
-            <div id="search-reader" class="tab-content" style="display: none;">
-                <div class="form-container">
-                    <h2 class="form-title">Поиск читателей</h2>
+        <div id="search-reader" class="tab-content" style="display:none;">
+            <div class="form-container">
+                <h2 class="form-title">Поиск и управление</h2>
+                <div class="form-row">
+                    <div class="form-group"><label>Поиск по ФИО/телефону/email/билету/ID</label><input type="text" id="search-query" class="form-control"></div>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="searchReaders()">Найти</button>
+                    <button class="btn btn-secondary" onclick="loadReaders()">Показать всех</button>
+                </div>
 
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="search-name">Запрос</label>
-                            <input type="text" id="search-query" class="form-control">
-                        </div>
-                    </div>
-
-                    <div class="btn-group">
-                        <button class="btn btn-secondary" onclick="resetReaderSearch()">Сбросить</button>
-                        <button class="btn btn-primary" onclick="searchReaders()">Поиск</button>
-                    </div>
-
-                    <div class="search-results-container" id="reader-results" style="display: none;">
-                        <table class="search-results">
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Фамилия</th>
-                                    <th>Имя</th>
-                                    <th>Отчество</th>
-                                    <th>Дата рождения</th>
-                                    <th>Телефон</th>
-                                    <th>Адрес проживания</th>
-                                    <th>Эл. почта</th>
-                                    <th>Штрафные баллы</th>
-                                </tr>
-                            </thead>
-                            <tbody id="readers-table-body">
-                                <!-- Данные будут загружены через JavaScript -->
-                            </tbody>
-                        </table>
-                    </div>
+                <div id="reader-results" class="search-results-container" style="display:block; margin-top: 20px;">
+                    <table class="search-results">
+                        <thead>
+                        <tr>
+                            <th>ID</th><th>Билет</th><th>ФИО</th><th>Телефон</th><th>Email</th><th>Статус</th><th>Активные</th><th>Просрочки</th><th>Штраф</th><th>ПД</th><th>Действия</th>
+                        </tr>
+                        </thead>
+                        <tbody id="readers-table-body"></tbody>
+                    </table>
                 </div>
             </div>
-        </main>
-    </div>
+        </div>
 
-    <script src="../static/js/main.js"></script>
-    <script src="../static/js/readers.js"></script>
+        <div id="reader-card-modal" class="modal">
+            <div class="modal-content" style="max-width: 900px;">
+                <h3 class="modal-title">Карточка читателя</h3>
+                <div id="reader-card-content"></div>
+                <hr>
+                <h4>Штрафные баллы</h4>
+                <div class="form-row">
+                    <div class="form-group"><input id="penalty-delta" class="form-control" type="number" placeholder="+/- баллы"></div>
+                    <div class="form-group"><select id="penalty-reason" class="form-control"><option>просрочка</option><option>порча книги</option><option>утеря книги</option><option>нарушение правил</option><option>другое</option><option>списание</option></select></div>
+                    <div class="form-group"><input id="penalty-comment" class="form-control" placeholder="Комментарий"></div>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="applyPenalty()">Применить</button>
+                    <button class="btn btn-secondary" onclick="hideModal('reader-card-modal')">Закрыть</button>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+<script src="../static/js/main.js"></script>
+<script src="../static/js/readers.js"></script>
 </body>
 </html>

@@ -105,7 +105,7 @@ async function issueBook() {
     }
 
     try {
-        const response = await fetch('/api/book/issue', {
+        const response = await fetch('/api/book/issue-v2', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -299,14 +299,19 @@ async function processReturn() {
     }
 
     try {
-        const response = await fetch('/api/book/return', {
+        const response = await fetch('/api/book/return-v2', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
                 record_id: returnBookRecord.record_id,
-                actual_return_date: actualReturnDate
+                actual_return_date: actualReturnDate,
+                final_status: document.getElementById('final-return-status').value,
+                comment: document.getElementById('return-notes').value,
+                manual_penalty: Number(document.getElementById('manual-penalty').value || 0),
+                penalty_reason: document.getElementById('penalty-reason').value,
+                penalty_comment: document.getElementById('return-notes').value
             })
         });
 
@@ -332,6 +337,8 @@ function clearReturnForm() {
     document.getElementById('return-book-info').style.display = 'none';
     document.getElementById('actual-return-date').value = '';
     document.getElementById('return-notes').value = '';
+    document.getElementById('manual-penalty').value = 0;
+    document.getElementById('final-return-status').value = 'доступна';
     document.getElementById('return-btn').disabled = true;
     document.getElementById('debt-notice').style.display = 'none';
     

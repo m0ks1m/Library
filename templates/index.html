@@ -30,6 +30,7 @@
                     {% endif %}
 
                     {% if role == 'Бухгалтер' or role == 'Администратор' %}
+                    <li><a href="/supplies"><i class="fas fa-truck"></i>Поставки</a></li>
                     <li><a href="/reports"><i class="fas fa-chart-bar"></i>Отчеты</a></li>
                     {% endif %}
 
@@ -83,6 +84,10 @@
                 <a href="/transactions?action=return" class="action-btn">
                     <i class="fas fa-undo"></i>
                     <span>Возврат книги</span>
+                </a>
+                <a href="/supplies" class="action-btn">
+                    <i class="fas fa-truck"></i>
+                    <span>Поставки</span>
                 </a>
                 <a href="/reports" class="action-btn">
                     <i class="fas fa-file-alt"></i>

@@ -1,12 +1,9 @@
-from docxtpl import DocxTemplate
-from docx import Document
 from datetime import datetime
 import sqlite3
 import os
 from typing import List, Dict, Optional, Union
-from docx2pdf import convert as docx_to_pdf
 
-DB_PATH = r"instance\sqlite.db"
+from config import DB_PATH
 
 def generate_universal_report(
     template_path: str,
@@ -38,6 +35,7 @@ def generate_universal_report(
     os.makedirs(output_dir, exist_ok=True)
     
     # Загрузка шаблона
+    from docxtpl import DocxTemplate
     doc = DocxTemplate(template_path)
     
     # Получение данных о сотруднике
@@ -99,6 +97,7 @@ def convert_docx_to_pdf(docx_filepath: str, output_dir: str) -> str:
     os.makedirs(output_dir, exist_ok=True)
     pdf_filename = os.path.splitext(os.path.basename(docx_filepath))[0] + ".pdf"
     pdf_filepath = os.path.join(output_dir, pdf_filename)
+    from docx2pdf import convert as docx_to_pdf
     docx_to_pdf(docx_filepath, pdf_filepath)
     return pdf_filepath
 
