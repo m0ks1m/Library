@@ -4,6 +4,8 @@ from flask_cors import CORS
 from functools import wraps
 import sqlite3
 import os
+import csv
+from datetime import datetime
 from instance.fill_db import fill
 from config import DB_PATH
 
@@ -563,6 +565,277 @@ def get_book_by_identifier():
         return jsonify({"error": str(e)}), 500
 
 # Выдача книги
+def _build_report_payload(report_type, start_date=None, end_date=None):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    params = []
+
+    report_map = {
+        "issued-books": {
+            "title": "Отчет по выданным книгам",
+            "date_column": "gb.given_date",
+            "query": """
+                SELECT
+                    gb.id,
+                    b.name AS book_name,
+                    (a.last_name || ' ' || a.first_name || COALESCE(' ' || a.patronymic, '')) AS author,
+                    (r.last_name || ' ' || r.first_name || COALESCE(' ' || r.patronymic, '')) AS reader,
+                    date(gb.given_date) AS issued_at,
+                    date(gb.return_date) AS due_at,
+                    COALESCE(date(gb.return_date_fact), 'Не возвращена') AS returned_at,
+                    CASE
+                        WHEN gb.return_date_fact IS NULL AND date(gb.return_date) < date('now') THEN 'Просрочена'
+                        WHEN gb.return_date_fact IS NULL THEN 'На руках'
+                        ELSE 'Возвращена'
+                    END AS status
+                FROM given_book gb
+                JOIN book b ON gb.book_id = b.id
+                JOIN author a ON b.author_id = a.id
+                JOIN reader r ON gb.reader_id = r.id
+                WHERE 1=1 {period_condition}
+                ORDER BY gb.given_date DESC
+            """,
+            "columns": ["#", "Книга", "Автор", "Читатель", "Выдана", "Вернуть до", "Факт возврата", "Статус"],
+            "row_builder": lambda r, i: [i, r["book_name"], r["author"], r["reader"], r["issued_at"], r["due_at"], r["returned_at"], r["status"]],
+            "kpi_builder": lambda rows: [
+                {"label": "Всего выдач", "value": len(rows)},
+                {"label": "На руках", "value": sum(1 for r in rows if r["status"] == "На руках")},
+                {"label": "Просрочено", "value": sum(1 for r in rows if r["status"] == "Просрочена")}
+            ]
+        },
+        "overdue-books": {
+            "title": "Отчет по просрочкам",
+            "date_column": "gb.given_date",
+            "query": """
+                SELECT
+                    gb.id,
+                    b.name AS book_name,
+                    (r.last_name || ' ' || r.first_name || COALESCE(' ' || r.patronymic, '')) AS reader,
+                    date(gb.given_date) AS issued_at,
+                    date(gb.return_date) AS due_at,
+                    CAST(julianday('now') - julianday(gb.return_date) AS INTEGER) AS overdue_days
+                FROM given_book gb
+                JOIN book b ON gb.book_id = b.id
+                JOIN reader r ON gb.reader_id = r.id
+                WHERE gb.return_date_fact IS NULL
+                  AND date(gb.return_date) < date('now')
+                  {period_condition}
+                ORDER BY overdue_days DESC
+            """,
+            "columns": ["#", "Книга", "Читатель", "Дата выдачи", "Плановый возврат", "Дней просрочки"],
+            "row_builder": lambda r, i: [i, r["book_name"], r["reader"], r["issued_at"], r["due_at"], r["overdue_days"]],
+            "kpi_builder": lambda rows: [
+                {"label": "Просроченных выдач", "value": len(rows)},
+                {"label": "Макс. просрочка", "value": max((r["overdue_days"] for r in rows), default=0)},
+                {"label": "Средняя просрочка", "value": round(sum((r["overdue_days"] for r in rows), 0) / len(rows), 1) if rows else 0}
+            ]
+        },
+        "readers": {
+            "title": "Отчет по читателям",
+            "date_column": None,
+            "query": """
+                SELECT
+                    r.id,
+                    (r.last_name || ' ' || r.first_name || COALESCE(' ' || r.patronymic, '')) AS reader,
+                    r.phone,
+                    r.email,
+                    r.penalty_points,
+                    COUNT(gb.id) AS total_issues,
+                    SUM(CASE WHEN gb.return_date_fact IS NULL THEN 1 ELSE 0 END) AS active_issues
+                FROM reader r
+                LEFT JOIN given_book gb ON gb.reader_id = r.id
+                WHERE 1=1
+                GROUP BY r.id, r.last_name, r.first_name, r.patronymic, r.phone, r.email, r.penalty_points
+                ORDER BY total_issues DESC, reader
+            """,
+            "columns": ["#", "Читатель", "Телефон", "Email", "Выдач всего", "Книг на руках", "Штрафные баллы"],
+            "row_builder": lambda r, i: [i, r["reader"], r["phone"], r["email"], r["total_issues"], r["active_issues"], r["penalty_points"]],
+            "kpi_builder": lambda rows: [
+                {"label": "Всего читателей", "value": len(rows)},
+                {"label": "Активные читатели", "value": sum(1 for r in rows if r["active_issues"] > 0)},
+                {"label": "Сумма штрафных баллов", "value": sum(r["penalty_points"] for r in rows)}
+            ]
+        },
+        "book-popularity": {
+            "title": "Отчет по популярности книг",
+            "date_column": None,
+            "query": """
+                SELECT
+                    b.id,
+                    b.name AS book_name,
+                    (a.last_name || ' ' || a.first_name || COALESCE(' ' || a.patronymic, '')) AS author,
+                    COUNT(gb.id) AS issue_count,
+                    SUM(CASE WHEN gb.return_date_fact IS NULL THEN 1 ELSE 0 END) AS active_count
+                FROM book b
+                JOIN author a ON b.author_id = a.id
+                LEFT JOIN given_book gb ON gb.book_id = b.id
+                GROUP BY b.id, b.name, a.last_name, a.first_name, a.patronymic
+                ORDER BY issue_count DESC, b.name
+            """,
+            "columns": ["#", "Книга", "Автор", "Выдано раз", "Сейчас на руках"],
+            "row_builder": lambda r, i: [i, r["book_name"], r["author"], r["issue_count"], r["active_count"]],
+            "kpi_builder": lambda rows: [
+                {"label": "Книг в рейтинге", "value": len(rows)},
+                {"label": "Всего выдач", "value": sum(r["issue_count"] for r in rows)},
+                {"label": "Топ-книга", "value": rows[0]["book_name"] if rows else '-'}
+            ]
+        },
+        "penalty-points": {
+            "title": "Отчет по штрафным баллам",
+            "date_column": None,
+            "query": """
+                SELECT
+                    r.id,
+                    (r.last_name || ' ' || r.first_name || COALESCE(' ' || r.patronymic, '')) AS reader,
+                    r.penalty_points,
+                    SUM(CASE WHEN gb.return_date_fact IS NULL AND date(gb.return_date) < date('now') THEN 1 ELSE 0 END) AS active_overdues
+                FROM reader r
+                LEFT JOIN given_book gb ON gb.reader_id = r.id
+                GROUP BY r.id, r.last_name, r.first_name, r.patronymic, r.penalty_points
+                HAVING r.penalty_points > 0 OR active_overdues > 0
+                ORDER BY r.penalty_points DESC, active_overdues DESC
+            """,
+            "columns": ["#", "Читатель", "Штрафные баллы", "Активные просрочки"],
+            "row_builder": lambda r, i: [i, r["reader"], r["penalty_points"], r["active_overdues"]],
+            "kpi_builder": lambda rows: [
+                {"label": "Читателей со штрафами", "value": len(rows)},
+                {"label": "Сумма штрафных баллов", "value": sum(r["penalty_points"] for r in rows)},
+                {"label": "Активных просрочек", "value": sum(r["active_overdues"] for r in rows)}
+            ]
+        },
+        "write-off": {
+            "title": "Отчет по списанным книгам",
+            "date_column": "da.date",
+            "query": """
+                SELECT
+                    da.id,
+                    date(da.date) AS writeoff_date,
+                    b.name AS book_name,
+                    da.quantity,
+                    da.commentary
+                FROM debiting_act da
+                JOIN book b ON da.book_id = b.id
+                WHERE 1=1 {period_condition}
+                ORDER BY da.date DESC
+            """,
+            "columns": ["#", "Дата", "Книга", "Кол-во", "Причина"],
+            "row_builder": lambda r, i: [i, r["writeoff_date"], r["book_name"], r["quantity"], r["commentary"]],
+            "kpi_builder": lambda rows: [
+                {"label": "Актов списания", "value": len(rows)},
+                {"label": "Списано экземпляров", "value": sum(r["quantity"] for r in rows)}
+            ]
+        },
+        "new-arrivals": {
+            "title": "Отчет по поступлениям книг",
+            "date_column": "lb.date",
+            "query": """
+                SELECT
+                    lb.id,
+                    date(lb.date) AS supply_date,
+                    b.name AS book_name,
+                    s.name AS supplier,
+                    orq.quantity
+                FROM lading_bill lb
+                JOIN order_request orq ON orq.id = lb.order_request_id
+                JOIN book b ON b.id = lb.book_id
+                JOIN supplier s ON s.id = lb.supplier_id
+                WHERE 1=1 {period_condition}
+                ORDER BY lb.date DESC
+            """,
+            "columns": ["#", "Дата", "Книга", "Поставщик", "Кол-во"],
+            "row_builder": lambda r, i: [i, r["supply_date"], r["book_name"], r["supplier"], r["quantity"]],
+            "kpi_builder": lambda rows: [
+                {"label": "Поставок", "value": len(rows)},
+                {"label": "Поступило экземпляров", "value": sum(r["quantity"] for r in rows)}
+            ]
+        }
+    }
+
+    if report_type not in report_map:
+        raise ValueError("Неизвестный тип отчета")
+
+    report_config = report_map[report_type]
+    period_condition = ""
+    if start_date and end_date and report_config.get("date_column"):
+        period_condition = f" AND date({report_config['date_column']}) BETWEEN date(?) AND date(?) "
+        params.extend([start_date, end_date])
+
+    query = report_config["query"].format(period_condition=period_condition)
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    conn.close()
+
+    table_rows = [report_config["row_builder"](row, idx + 1) for idx, row in enumerate(rows)]
+    return {
+        "report_type": report_type,
+        "title": report_config["title"],
+        "period": {"start": start_date, "end": end_date},
+        "columns": report_config["columns"],
+        "rows": table_rows,
+        "totals": {
+            "records": len(table_rows)
+        },
+        "kpi": report_config["kpi_builder"](rows)
+    }
+
+
+@app.route('/api/reports/preview', methods=['POST'])
+@login_required
+def preview_report_api():
+    try:
+        data = request.get_json() or {}
+        report_type = data.get('report_type')
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+
+        if not report_type:
+            return jsonify({"error": "Не указан тип отчета"}), 400
+
+        payload = _build_report_payload(report_type, start_date, end_date)
+        return jsonify({"success": True, "report": payload}), 200
+    except ValueError as ex:
+        return jsonify({"error": str(ex)}), 400
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route('/api/reports/export', methods=['POST'])
+@login_required
+def export_report_api():
+    try:
+        data = request.get_json() or {}
+        report_type = data.get('report_type')
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+
+        payload = _build_report_payload(report_type, start_date, end_date)
+
+        os.makedirs('reports', exist_ok=True)
+        filename = f"{report_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        path = os.path.join('reports', filename)
+
+        with open(path, 'w', encoding='utf-8', newline='') as csv_file:
+            writer = csv.writer(csv_file, delimiter=';')
+            writer.writerow([payload['title']])
+            if start_date and end_date:
+                writer.writerow([f"Период: {start_date} - {end_date}"])
+            writer.writerow([])
+            writer.writerow(payload['columns'])
+            writer.writerows(payload['rows'])
+
+        return jsonify({
+            "success": True,
+            "report_url": f"/reports_download/{filename}",
+            "filename": filename
+        }), 200
+    except ValueError as ex:
+        return jsonify({"error": str(ex)}), 400
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
 @app.route('/api/reports/generate', methods=['POST'])
 @login_required
 def generate_report_api():

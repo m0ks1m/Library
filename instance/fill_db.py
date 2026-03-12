@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import date, timedelta
 from config import DB_PATH
 
 
@@ -81,7 +82,8 @@ def fill():
         # Читатели
         readers = [
             ("Алексей", "Сидоров", "Алексеевич", "1990-05-15", "г. Москва", "alex@example.com", "71234567890", 0),
-            ("Мария", "Кузнецова", "Сергеевна", "1985-08-20", "г. Казань", "maria@example.com", "79876543210", 2),
+            ("Мария", "Кузнецова", "Сергеевна", "1985-08-20", "г. Казань", "maria@example.com", "79876543210", 5),
+            ("Илья", "Орлов", "Петрович", "1994-11-02", "г. Самара", "ilya@example.com", "79997774411", 1),
         ]
         cursor.executemany(
             "INSERT INTO reader (first_name, last_name, patronymic, date_birth, address, email, phone, penalty_points) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -104,10 +106,19 @@ def fill():
             (14, 5, 10),
         )
 
-        # Выданные книги (1 активная, 1 возвращённая)
+        # Даты для тестовых сценариев отчетов
+        today = date.today()
+
+        # Выданные книги: активные, просроченные и возвращенные
         given_books = [
-            (1, "2024-01-10", "2024-01-24", None, 1, 1, 1),
-            (1, "2024-01-01", "2024-01-14", "2024-01-13", 2, 1, 2),
+            # просрочена
+            (1, str(today - timedelta(days=24)), str(today - timedelta(days=10)), None, 1, 1, 1),
+            # возвращена вовремя
+            (1, str(today - timedelta(days=14)), str(today - timedelta(days=7)), str(today - timedelta(days=8)), 2, 1, 2),
+            # активная (не просрочена)
+            (1, str(today - timedelta(days=3)), str(today + timedelta(days=7)), None, 1, 1, 3),
+            # просрочена у второго читателя
+            (1, str(today - timedelta(days=18)), str(today - timedelta(days=5)), None, 2, 2, 4),
         ]
         cursor.executemany(
             "INSERT INTO given_book (quantity, given_date, return_date, return_date_fact, reader_id, employee_id, book_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -116,8 +127,9 @@ def fill():
 
         # Заявки на заказ
         order_requests = [
-            ("2024-02-01", 15, 4, 1),
-            ("2024-02-03", 10, 2, 1),
+            (str(today - timedelta(days=20)), 15, 4, 1),
+            (str(today - timedelta(days=12)), 10, 2, 1),
+            (str(today - timedelta(days=2)), 6, 1, 2),
         ]
         cursor.executemany(
             "INSERT INTO order_request (date, quantity, book_id, employee_id) VALUES (?, ?, ?, ?)",
@@ -126,8 +138,9 @@ def fill():
 
         # Накладные
         lading_bills = [
-            ("2024-02-10", 4, 1, 1),
-            ("2024-02-12", 2, 2, 2),
+            (str(today - timedelta(days=19)), 4, 1, 1),
+            (str(today - timedelta(days=11)), 2, 2, 2),
+            (str(today - timedelta(days=1)), 1, 3, 1),
         ]
         cursor.executemany(
             "INSERT INTO lading_bill (date, book_id, order_request_id, supplier_id) VALUES (?, ?, ?, ?)",
@@ -136,8 +149,9 @@ def fill():
 
         # Акты списания
         debiting_acts = [
-            ("2024-01-20", 1, "Порча обложки и страниц", 3),
-            ("2024-01-28", 2, "Утеря экземпляров", 2),
+            (str(today - timedelta(days=30)), 1, "Порча обложки и страниц", 3),
+            (str(today - timedelta(days=9)), 2, "Утеря экземпляров", 2),
+            (str(today - timedelta(days=4)), 1, "Дефект печати", 1),
         ]
         cursor.executemany(
             "INSERT INTO debiting_act (date, quantity, commentary, book_id) VALUES (?, ?, ?, ?)",
