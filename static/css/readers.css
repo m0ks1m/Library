@@ -107,3 +107,12 @@
 .tab:hover:not(.active) {
     background-color: rgba(78, 115, 223, 0.1);
 }
+
+#reader-card-empty {
+    color: var(--secondary);
+}
+
+.issue-history-table .btn {
+    margin-right: 6px;
+    margin-bottom: 4px;
+}

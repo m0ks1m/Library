@@ -4,6 +4,8 @@ from flask_cors import CORS
 from functools import wraps
 import sqlite3
 import os
+import csv
+from datetime import datetime
 from instance.fill_db import fill
 from config import DB_PATH
 
@@ -28,6 +30,75 @@ def role_required(*roles):
         return decorated_view
     return wrapper
 
+
+
+
+def ensure_reader_schema():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='reader'")
+    if not cursor.fetchone():
+        conn.close()
+        return
+
+    cursor.execute("PRAGMA table_info(reader)")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if 'ticket_number' not in columns:
+        cursor.execute("ALTER TABLE reader ADD COLUMN ticket_number VARCHAR(30)")
+    if 'registered_at' not in columns:
+        cursor.execute("ALTER TABLE reader ADD COLUMN registered_at TIMESTAMP")
+        cursor.execute("UPDATE reader SET registered_at = COALESCE(registered_at, CURRENT_TIMESTAMP)")
+    if 'status' not in columns:
+        cursor.execute("ALTER TABLE reader ADD COLUMN status VARCHAR(20) DEFAULT 'ACTIVE'")
+        cursor.execute("UPDATE reader SET status = COALESCE(status, 'ACTIVE')")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS reader_penalty_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reader_id INTEGER NOT NULL,
+            delta_points INTEGER NOT NULL,
+            reason VARCHAR(30) NOT NULL,
+            commentary VARCHAR(250),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            employee_id INTEGER,
+            FOREIGN KEY (reader_id) REFERENCES reader (id),
+            FOREIGN KEY (employee_id) REFERENCES employee (id)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS reader_action_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reader_id INTEGER NOT NULL,
+            action_type VARCHAR(50) NOT NULL,
+            details VARCHAR(500),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            employee_id INTEGER,
+            FOREIGN KEY (reader_id) REFERENCES reader (id),
+            FOREIGN KEY (employee_id) REFERENCES employee (id)
+        )
+    """)
+
+    cursor.execute("SELECT id FROM reader WHERE ticket_number IS NULL OR ticket_number = ''")
+    for (reader_id,) in cursor.fetchall():
+        cursor.execute("UPDATE reader SET ticket_number = ? WHERE id = ?", (f"RB-{reader_id:04d}", reader_id))
+
+    conn.commit()
+    conn.close()
+
+
+def log_reader_action(cursor, reader_id, action_type, details='', employee_id=None):
+    cursor.execute(
+        "INSERT INTO reader_action_history (reader_id, action_type, details, employee_id) VALUES (?, ?, ?, ?)",
+        (reader_id, action_type, details, employee_id)
+    )
+
+
+def log_penalty_change(cursor, reader_id, delta_points, reason, commentary='', employee_id=None):
+    cursor.execute(
+        "INSERT INTO reader_penalty_history (reader_id, delta_points, reason, commentary, employee_id) VALUES (?, ?, ?, ?, ?)",
+        (reader_id, delta_points, reason, commentary, employee_id)
+    )
 
 # Главная страница
 @app.route('/')
@@ -228,95 +299,272 @@ def get_metrics():
     finally:
         conn.close()
         
-@app.route('/api/readers', methods=['POST'])
-def add_reader():
+@app.route('/api/readers', methods=['GET'])
+@login_required
+def list_readers():
+    ensure_reader_schema()
     try:
-        data = request.get_json()
-        print(data)
-        
-        # Валидация данных
+        query = (request.args.get('query') or '').strip()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        sql = """
+            SELECT
+                r.id,
+                r.ticket_number,
+                r.first_name,
+                r.last_name,
+                r.patronymic,
+                r.date_birth,
+                r.address,
+                r.email,
+                r.phone,
+                r.registered_at,
+                r.status,
+                r.penalty_points,
+                COALESCE(SUM(CASE WHEN gb.return_date_fact IS NULL THEN gb.quantity ELSE 0 END), 0) AS active_issues,
+                COALESCE(SUM(CASE WHEN gb.return_date_fact IS NULL AND date(gb.return_date) < date('now') THEN gb.quantity ELSE 0 END), 0) AS overdue_issues
+            FROM reader r
+            LEFT JOIN given_book gb ON gb.reader_id = r.id
+            WHERE 1=1
+        """
+        params = []
+        if query:
+            sql += """
+                AND (
+                    r.id = ?
+                    OR r.ticket_number LIKE ?
+                    OR (r.last_name || ' ' || r.first_name || ' ' || COALESCE(r.patronymic, '')) LIKE ?
+                    OR r.phone LIKE ?
+                    OR r.email LIKE ?
+                )
+            """
+            params.extend([query if query.isdigit() else -1, f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"])
+
+        sql += """
+            GROUP BY r.id, r.ticket_number, r.first_name, r.last_name, r.patronymic, r.date_birth, r.address, r.email, r.phone, r.registered_at, r.status, r.penalty_points
+            ORDER BY r.last_name, r.first_name
+        """
+
+        cursor.execute(sql, params)
+        readers = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'readers': readers, 'count': len(readers)}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/readers', methods=['POST'])
+@login_required
+def add_reader():
+    ensure_reader_schema()
+    try:
+        data = request.get_json() or {}
         required_fields = ['firstName', 'lastName', 'phone', 'address', 'email', 'birthdate']
-        if not all(field in data for field in required_fields):
-            return jsonify({"error": "Не заполнены обязательные поля"}), 400
-        
+        if not all(data.get(field) for field in required_fields):
+            return jsonify({'error': 'Не заполнены обязательные поля'}), 400
+
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        
-        # Вставка данных в БД
-        cursor.execute('''
-            INSERT INTO reader 
-            (first_name, last_name, patronymic, date_birth, phone, address, email) 
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            data['firstName'],
-            data['lastName'],
-            data.get('patronymic', ''),
-            data.get('birthdate', ''),
+
+        cursor.execute("""
+            INSERT INTO reader (first_name, last_name, patronymic, date_birth, phone, address, email, registered_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+        """, (
+            data['firstName'].strip(),
+            data['lastName'].strip(),
+            data.get('patronymic', '').strip(),
+            data['birthdate'],
             data['phone'],
-            data['address'],
-            data['email']
+            data['address'].strip(),
+            data['email'].strip(),
+            data.get('status', 'ACTIVE')
         ))
-        
-        conn.commit()
+
         reader_id = cursor.lastrowid
+        ticket_number = f"RB-{reader_id:04d}"
+        cursor.execute("UPDATE reader SET ticket_number = ? WHERE id = ?", (ticket_number, reader_id))
+        log_reader_action(cursor, reader_id, 'CREATE', 'Создана карточка читателя', current_user.id)
+
+        conn.commit()
         conn.close()
-        
-        return jsonify({
-            "success": True,
-            "message": "Читатель успешно зарегистрирован",
-            "readerId": reader_id
-        }), 201
-        
+
+        return jsonify({'success': True, 'message': 'Читатель успешно зарегистрирован', 'readerId': reader_id, 'ticketNumber': ticket_number}), 201
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/api/readers/search', methods=['GET'])
+@login_required
 def search_readers():
+    ensure_reader_schema()
+    return list_readers()
+
+
+@app.route('/api/readers/<int:reader_id>', methods=['GET'])
+@login_required
+def get_reader_details(reader_id):
+    ensure_reader_schema()
     try:
-        search_query = request.args.get('query')
-        
-        if not search_query:
-            return jsonify({"error": "Не указана строка для поиска"}), 400
-        
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT
+                r.id,
+                r.ticket_number,
+                r.first_name,
+                r.last_name,
+                r.patronymic,
+                r.date_birth,
+                r.address,
+                r.email,
+                r.phone,
+                r.registered_at,
+                r.status,
+                r.penalty_points,
+                COALESCE(SUM(CASE WHEN gb.return_date_fact IS NULL THEN gb.quantity ELSE 0 END), 0) AS active_issues,
+                COALESCE(SUM(CASE WHEN gb.return_date_fact IS NULL AND date(gb.return_date) < date('now') THEN gb.quantity ELSE 0 END), 0) AS overdue_issues
+            FROM reader r
+            LEFT JOIN given_book gb ON gb.reader_id = r.id
+            WHERE r.id = ?
+            GROUP BY r.id
+        """, (reader_id,))
+        reader = cursor.fetchone()
+        if not reader:
+            conn.close()
+            return jsonify({'error': 'Читатель не найден'}), 404
+
+        cursor.execute("""
+            SELECT date(created_at) AS created_at, action_type, details
+            FROM reader_action_history
+            WHERE reader_id = ?
+            ORDER BY created_at DESC, id DESC
+        """, (reader_id,))
+        action_history = [dict(row) for row in cursor.fetchall()]
+
+        cursor.execute("""
+            SELECT date(created_at) AS created_at, delta_points, reason, commentary
+            FROM reader_penalty_history
+            WHERE reader_id = ?
+            ORDER BY created_at DESC, id DESC
+        """, (reader_id,))
+        penalty_history = [dict(row) for row in cursor.fetchall()]
+
+        conn.close()
+        return jsonify({'success': True, 'reader': dict(reader), 'action_history': action_history, 'penalty_history': penalty_history}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/readers/<int:reader_id>', methods=['PUT'])
+@login_required
+def update_reader(reader_id):
+    ensure_reader_schema()
+    try:
+        data = request.get_json() or {}
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        
-        # Ищем в любом из полей: first_name, last_name, patronymic, contact
-        cursor.execute('''
-            SELECT * FROM reader 
-            WHERE first_name LIKE ? 
-               OR last_name LIKE ? 
-               OR patronymic LIKE ? 
-               OR phone LIKE ?
-        ''', [f"%{search_query}%"] * 4)
-        
-        readers = cursor.fetchall()
+
+        cursor.execute('SELECT id, status FROM reader WHERE id = ?', (reader_id,))
+        existing = cursor.fetchone()
+        if not existing:
+            conn.close()
+            return jsonify({'error': 'Читатель не найден'}), 404
+
+        cursor.execute("""
+            UPDATE reader
+            SET first_name = ?, last_name = ?, patronymic = ?, date_birth = ?, phone = ?, address = ?, email = ?, status = ?
+            WHERE id = ?
+        """, (
+            data.get('firstName', '').strip(),
+            data.get('lastName', '').strip(),
+            data.get('patronymic', '').strip(),
+            data.get('birthdate'),
+            data.get('phone'),
+            data.get('address', '').strip(),
+            data.get('email', '').strip(),
+            data.get('status', 'ACTIVE'),
+            reader_id
+        ))
+
+        log_reader_action(cursor, reader_id, 'UPDATE', 'Обновлены данные карточки читателя', current_user.id)
+        if existing[1] != data.get('status', 'ACTIVE'):
+            log_reader_action(cursor, reader_id, 'STATUS_CHANGE', f"Статус изменен на {data.get('status', 'ACTIVE')}", current_user.id)
+
+        conn.commit()
         conn.close()
-        
-        readers_list = []
-        for reader in readers:
-            readers_list.append({
-                "id": reader[0],
-                "firstName": reader[1],
-                "lastName": reader[2],
-                "patronymic": reader[3],
-                "birthdate": reader[4],
-                "adress": reader[5],
-                "email": reader[6],
-                "phone": reader[7],
-                "penalty_points": reader[8],
-            })
-        
-        return jsonify({
-            "success": True,
-            "readers": readers_list,
-            "count": len(readers_list)
-        }), 200
-        
+        return jsonify({'success': True}), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/readers/<int:reader_id>', methods=['DELETE'])
+@login_required
+def delete_reader(reader_id):
+    ensure_reader_schema()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT COUNT(*) FROM given_book WHERE reader_id = ? AND return_date_fact IS NULL', (reader_id,))
+        active_issues = cursor.fetchone()[0]
+        if active_issues > 0:
+            conn.close()
+            return jsonify({'error': 'Нельзя удалить читателя с активными выдачами'}), 400
+
+        cursor.execute('DELETE FROM reader_penalty_history WHERE reader_id = ?', (reader_id,))
+        cursor.execute('DELETE FROM reader_action_history WHERE reader_id = ?', (reader_id,))
+        cursor.execute('DELETE FROM reader WHERE id = ?', (reader_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/readers/<int:reader_id>/penalty', methods=['POST'])
+@login_required
+def change_reader_penalty(reader_id):
+    ensure_reader_schema()
+    try:
+        data = request.get_json() or {}
+        delta_points = int(data.get('delta_points', 0))
+        reason = data.get('reason', 'other')
+        commentary = data.get('commentary', '')
+
+        if delta_points == 0:
+            return jsonify({'error': 'Значение изменения штрафных баллов не может быть 0'}), 400
+
+        allowed_reasons = {'overdue', 'book_damage', 'book_loss', 'rule_violation', 'other'}
+        if reason not in allowed_reasons:
+            return jsonify({'error': 'Некорректная причина начисления/списания'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT penalty_points FROM reader WHERE id = ?', (reader_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'error': 'Читатель не найден'}), 404
+
+        new_value = max(0, row[0] + delta_points)
+        applied_delta = new_value - row[0]
+
+        cursor.execute('UPDATE reader SET penalty_points = ? WHERE id = ?', (new_value, reader_id))
+        log_penalty_change(cursor, reader_id, applied_delta, reason, commentary, current_user.id)
+        action_type = 'PENALTY_ADD' if applied_delta >= 0 else 'PENALTY_DEDUCT'
+        log_reader_action(cursor, reader_id, action_type, f"Изменение баллов: {applied_delta}. Причина: {reason}", current_user.id)
+
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'penalty_points': new_value, 'delta_points': applied_delta}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/api/books/all', methods=['GET'])
 def get_all_books():
@@ -563,6 +811,277 @@ def get_book_by_identifier():
         return jsonify({"error": str(e)}), 500
 
 # Выдача книги
+def _build_report_payload(report_type, start_date=None, end_date=None):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    params = []
+
+    report_map = {
+        "issued-books": {
+            "title": "Отчет по выданным книгам",
+            "date_column": "gb.given_date",
+            "query": """
+                SELECT
+                    gb.id,
+                    b.name AS book_name,
+                    (a.last_name || ' ' || a.first_name || COALESCE(' ' || a.patronymic, '')) AS author,
+                    (r.last_name || ' ' || r.first_name || COALESCE(' ' || r.patronymic, '')) AS reader,
+                    date(gb.given_date) AS issued_at,
+                    date(gb.return_date) AS due_at,
+                    COALESCE(date(gb.return_date_fact), 'Не возвращена') AS returned_at,
+                    CASE
+                        WHEN gb.return_date_fact IS NULL AND date(gb.return_date) < date('now') THEN 'Просрочена'
+                        WHEN gb.return_date_fact IS NULL THEN 'На руках'
+                        ELSE 'Возвращена'
+                    END AS status
+                FROM given_book gb
+                JOIN book b ON gb.book_id = b.id
+                JOIN author a ON b.author_id = a.id
+                JOIN reader r ON gb.reader_id = r.id
+                WHERE 1=1 {period_condition}
+                ORDER BY gb.given_date DESC
+            """,
+            "columns": ["#", "Книга", "Автор", "Читатель", "Выдана", "Вернуть до", "Факт возврата", "Статус"],
+            "row_builder": lambda r, i: [i, r["book_name"], r["author"], r["reader"], r["issued_at"], r["due_at"], r["returned_at"], r["status"]],
+            "kpi_builder": lambda rows: [
+                {"label": "Всего выдач", "value": len(rows)},
+                {"label": "На руках", "value": sum(1 for r in rows if r["status"] == "На руках")},
+                {"label": "Просрочено", "value": sum(1 for r in rows if r["status"] == "Просрочена")}
+            ]
+        },
+        "overdue-books": {
+            "title": "Отчет по просрочкам",
+            "date_column": "gb.given_date",
+            "query": """
+                SELECT
+                    gb.id,
+                    b.name AS book_name,
+                    (r.last_name || ' ' || r.first_name || COALESCE(' ' || r.patronymic, '')) AS reader,
+                    date(gb.given_date) AS issued_at,
+                    date(gb.return_date) AS due_at,
+                    CAST(julianday('now') - julianday(gb.return_date) AS INTEGER) AS overdue_days
+                FROM given_book gb
+                JOIN book b ON gb.book_id = b.id
+                JOIN reader r ON gb.reader_id = r.id
+                WHERE gb.return_date_fact IS NULL
+                  AND date(gb.return_date) < date('now')
+                  {period_condition}
+                ORDER BY overdue_days DESC
+            """,
+            "columns": ["#", "Книга", "Читатель", "Дата выдачи", "Плановый возврат", "Дней просрочки"],
+            "row_builder": lambda r, i: [i, r["book_name"], r["reader"], r["issued_at"], r["due_at"], r["overdue_days"]],
+            "kpi_builder": lambda rows: [
+                {"label": "Просроченных выдач", "value": len(rows)},
+                {"label": "Макс. просрочка", "value": max((r["overdue_days"] for r in rows), default=0)},
+                {"label": "Средняя просрочка", "value": round(sum((r["overdue_days"] for r in rows), 0) / len(rows), 1) if rows else 0}
+            ]
+        },
+        "readers": {
+            "title": "Отчет по читателям",
+            "date_column": None,
+            "query": """
+                SELECT
+                    r.id,
+                    (r.last_name || ' ' || r.first_name || COALESCE(' ' || r.patronymic, '')) AS reader,
+                    r.phone,
+                    r.email,
+                    r.penalty_points,
+                    COUNT(gb.id) AS total_issues,
+                    SUM(CASE WHEN gb.return_date_fact IS NULL THEN 1 ELSE 0 END) AS active_issues
+                FROM reader r
+                LEFT JOIN given_book gb ON gb.reader_id = r.id
+                WHERE 1=1
+                GROUP BY r.id, r.last_name, r.first_name, r.patronymic, r.phone, r.email, r.penalty_points
+                ORDER BY total_issues DESC, reader
+            """,
+            "columns": ["#", "Читатель", "Телефон", "Email", "Выдач всего", "Книг на руках", "Штрафные баллы"],
+            "row_builder": lambda r, i: [i, r["reader"], r["phone"], r["email"], r["total_issues"], r["active_issues"], r["penalty_points"]],
+            "kpi_builder": lambda rows: [
+                {"label": "Всего читателей", "value": len(rows)},
+                {"label": "Активные читатели", "value": sum(1 for r in rows if r["active_issues"] > 0)},
+                {"label": "Сумма штрафных баллов", "value": sum(r["penalty_points"] for r in rows)}
+            ]
+        },
+        "book-popularity": {
+            "title": "Отчет по популярности книг",
+            "date_column": None,
+            "query": """
+                SELECT
+                    b.id,
+                    b.name AS book_name,
+                    (a.last_name || ' ' || a.first_name || COALESCE(' ' || a.patronymic, '')) AS author,
+                    COUNT(gb.id) AS issue_count,
+                    SUM(CASE WHEN gb.return_date_fact IS NULL THEN 1 ELSE 0 END) AS active_count
+                FROM book b
+                JOIN author a ON b.author_id = a.id
+                LEFT JOIN given_book gb ON gb.book_id = b.id
+                GROUP BY b.id, b.name, a.last_name, a.first_name, a.patronymic
+                ORDER BY issue_count DESC, b.name
+            """,
+            "columns": ["#", "Книга", "Автор", "Выдано раз", "Сейчас на руках"],
+            "row_builder": lambda r, i: [i, r["book_name"], r["author"], r["issue_count"], r["active_count"]],
+            "kpi_builder": lambda rows: [
+                {"label": "Книг в рейтинге", "value": len(rows)},
+                {"label": "Всего выдач", "value": sum(r["issue_count"] for r in rows)},
+                {"label": "Топ-книга", "value": rows[0]["book_name"] if rows else '-'}
+            ]
+        },
+        "penalty-points": {
+            "title": "Отчет по штрафным баллам",
+            "date_column": None,
+            "query": """
+                SELECT
+                    r.id,
+                    (r.last_name || ' ' || r.first_name || COALESCE(' ' || r.patronymic, '')) AS reader,
+                    r.penalty_points,
+                    SUM(CASE WHEN gb.return_date_fact IS NULL AND date(gb.return_date) < date('now') THEN 1 ELSE 0 END) AS active_overdues
+                FROM reader r
+                LEFT JOIN given_book gb ON gb.reader_id = r.id
+                GROUP BY r.id, r.last_name, r.first_name, r.patronymic, r.penalty_points
+                HAVING r.penalty_points > 0 OR active_overdues > 0
+                ORDER BY r.penalty_points DESC, active_overdues DESC
+            """,
+            "columns": ["#", "Читатель", "Штрафные баллы", "Активные просрочки"],
+            "row_builder": lambda r, i: [i, r["reader"], r["penalty_points"], r["active_overdues"]],
+            "kpi_builder": lambda rows: [
+                {"label": "Читателей со штрафами", "value": len(rows)},
+                {"label": "Сумма штрафных баллов", "value": sum(r["penalty_points"] for r in rows)},
+                {"label": "Активных просрочек", "value": sum(r["active_overdues"] for r in rows)}
+            ]
+        },
+        "write-off": {
+            "title": "Отчет по списанным книгам",
+            "date_column": "da.date",
+            "query": """
+                SELECT
+                    da.id,
+                    date(da.date) AS writeoff_date,
+                    b.name AS book_name,
+                    da.quantity,
+                    da.commentary
+                FROM debiting_act da
+                JOIN book b ON da.book_id = b.id
+                WHERE 1=1 {period_condition}
+                ORDER BY da.date DESC
+            """,
+            "columns": ["#", "Дата", "Книга", "Кол-во", "Причина"],
+            "row_builder": lambda r, i: [i, r["writeoff_date"], r["book_name"], r["quantity"], r["commentary"]],
+            "kpi_builder": lambda rows: [
+                {"label": "Актов списания", "value": len(rows)},
+                {"label": "Списано экземпляров", "value": sum(r["quantity"] for r in rows)}
+            ]
+        },
+        "new-arrivals": {
+            "title": "Отчет по поступлениям книг",
+            "date_column": "lb.date",
+            "query": """
+                SELECT
+                    lb.id,
+                    date(lb.date) AS supply_date,
+                    b.name AS book_name,
+                    s.name AS supplier,
+                    orq.quantity
+                FROM lading_bill lb
+                JOIN order_request orq ON orq.id = lb.order_request_id
+                JOIN book b ON b.id = lb.book_id
+                JOIN supplier s ON s.id = lb.supplier_id
+                WHERE 1=1 {period_condition}
+                ORDER BY lb.date DESC
+            """,
+            "columns": ["#", "Дата", "Книга", "Поставщик", "Кол-во"],
+            "row_builder": lambda r, i: [i, r["supply_date"], r["book_name"], r["supplier"], r["quantity"]],
+            "kpi_builder": lambda rows: [
+                {"label": "Поставок", "value": len(rows)},
+                {"label": "Поступило экземпляров", "value": sum(r["quantity"] for r in rows)}
+            ]
+        }
+    }
+
+    if report_type not in report_map:
+        raise ValueError("Неизвестный тип отчета")
+
+    report_config = report_map[report_type]
+    period_condition = ""
+    if start_date and end_date and report_config.get("date_column"):
+        period_condition = f" AND date({report_config['date_column']}) BETWEEN date(?) AND date(?) "
+        params.extend([start_date, end_date])
+
+    query = report_config["query"].format(period_condition=period_condition)
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    conn.close()
+
+    table_rows = [report_config["row_builder"](row, idx + 1) for idx, row in enumerate(rows)]
+    return {
+        "report_type": report_type,
+        "title": report_config["title"],
+        "period": {"start": start_date, "end": end_date},
+        "columns": report_config["columns"],
+        "rows": table_rows,
+        "totals": {
+            "records": len(table_rows)
+        },
+        "kpi": report_config["kpi_builder"](rows)
+    }
+
+
+@app.route('/api/reports/preview', methods=['POST'])
+@login_required
+def preview_report_api():
+    try:
+        data = request.get_json() or {}
+        report_type = data.get('report_type')
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+
+        if not report_type:
+            return jsonify({"error": "Не указан тип отчета"}), 400
+
+        payload = _build_report_payload(report_type, start_date, end_date)
+        return jsonify({"success": True, "report": payload}), 200
+    except ValueError as ex:
+        return jsonify({"error": str(ex)}), 400
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route('/api/reports/export', methods=['POST'])
+@login_required
+def export_report_api():
+    try:
+        data = request.get_json() or {}
+        report_type = data.get('report_type')
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+
+        payload = _build_report_payload(report_type, start_date, end_date)
+
+        os.makedirs('reports', exist_ok=True)
+        filename = f"{report_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        path = os.path.join('reports', filename)
+
+        with open(path, 'w', encoding='utf-8', newline='') as csv_file:
+            writer = csv.writer(csv_file, delimiter=';')
+            writer.writerow([payload['title']])
+            if start_date and end_date:
+                writer.writerow([f"Период: {start_date} - {end_date}"])
+            writer.writerow([])
+            writer.writerow(payload['columns'])
+            writer.writerows(payload['rows'])
+
+        return jsonify({
+            "success": True,
+            "report_url": f"/reports_download/{filename}",
+            "filename": filename
+        }), 200
+    except ValueError as ex:
+        return jsonify({"error": str(ex)}), 400
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
 @app.route('/api/reports/generate', methods=['POST'])
 @login_required
 def generate_report_api():
@@ -734,6 +1253,7 @@ def find_book_for_return():
 # Обработка возврата книги
 @app.route('/api/book/return', methods=['POST'])
 def return_book():
+    ensure_reader_schema()
     try:
         data = request.get_json()
         required_fields = ['record_id', 'actual_return_date']
@@ -769,6 +1289,8 @@ def return_book():
                 SET penalty_points = penalty_points + ?
                 WHERE id = ?
             ''', (penalty_points, reader_id))
+            log_penalty_change(cursor, reader_id, penalty_points, 'overdue', 'Автоматическое начисление за просрочку возврата', current_user.id)
+            log_reader_action(cursor, reader_id, 'PENALTY_ADD', f'Автоматически начислено {penalty_points} баллов за просрочку', current_user.id)
         
         # Обновляем запись о выдаче
         cursor.execute('''
@@ -882,4 +1404,5 @@ def get_user_by_id(user_id):
 if __name__ == '__main__':
     if not os.path.exists(DB_PATH):
         fill()
+    ensure_reader_schema()
     app.run(debug=True)

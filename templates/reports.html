@@ -63,13 +63,13 @@
                     <label for="report-type">Тип отчета*</label>
                     <select id="report-type" class="form-control" required>
                         <option value="">Выберите тип отчета</option>
-                        <option value="all-books">Список всех книг</option>
-                        <option value="by-genre">Список книг по жанрам</option>
-                        <option value="by-author">Список книг по авторам</option>
-                        <option value="issued-books">Список книг на руках у читателей</option>
-                        <option value="write-off">Список книг, требующих списания</option>
-                        <option value="new-arrivals">Отчет о новых поступлениях за период</option>
-                        <option value="issue-return">Отчет о выданных и возвращенных книгах за период</option>
+                        <option value="issued-books">Отчет по выданным книгам</option>
+                        <option value="overdue-books">Отчет по просрочкам</option>
+                        <option value="readers">Отчет по читателям</option>
+                        <option value="book-popularity">Отчет по популярности книг</option>
+                        <option value="penalty-points">Отчет по штрафным баллам</option>
+                        <option value="write-off">Отчет по списанным книгам</option>
+                        <option value="new-arrivals">Отчет по поступлениям книг</option>
                     </select>
                 </div>
 
@@ -86,16 +86,14 @@
 
                 <div class="btn-group">
                     <button class="btn btn-secondary" onclick="resetReportForm()">Сбросить</button>
-                    <button class="btn btn-primary" onclick="generateReport()">Сформировать отчет</button>
+                    <button class="btn btn-primary" onclick="generateReport()">Показать предпросмотр</button>
                 </div>
 
                 <div class="export-options" id="export-options" style="display: none;">
                     <a href="#" id="download-report-btn" class="export-btn" style="display: none;" download>
-                        <i class="fas fa-file-word"></i> Скачать отчет (DOCX)
+                        <i class="fas fa-file-csv"></i> Выгрузить CSV
                     </a>
-                    <a href="#" id="download-report-pdf-btn" class="export-btn export-btn-pdf" style="display: none;" download>
-                        <i class="fas fa-file-pdf"></i> Скачать отчет (PDF)
-                    </a>
+                    
                     <!-- <button class="export-btn" onclick="exportReport('print')">
                         <i class="fas fa-print"></i> Печать
                     </button> -->
@@ -103,7 +101,7 @@
             </div>
 
             <div class="report-results" id="report-results" style="display: none;">
-                <h3 id="report-title">Отчет</h3>
+                <h3 id="report-title">Предпросмотр отчета</h3>
                 <div id="report-content">
                     <!-- Содержимое отчета будет загружено динамически -->
                 </div>
