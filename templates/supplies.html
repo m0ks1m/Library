@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Поставки | Твердый переплет</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/readers.css') }}">
+</head>
+<body>
+<div class="container">
+    <aside class="sidebar">
+        <div class="sidebar-header"><h2><i class="fas fa-graduation-cap"></i><span>Твердый переплет</span></h2></div>
+        <nav class="sidebar-nav"><ul>
+            <li><a href="{{ url_for('index') }}"><i class="fas fa-tachometer-alt"></i>Главная</a></li>
+            <li><a href="{{ url_for('books_page') }}"><i class="fas fa-book"></i>Каталог книг</a></li>
+            <li><a href="{{ url_for('readers_page') }}"><i class="fas fa-users"></i>Читатели</a></li>
+            <li><a href="{{ url_for('transactions_page') }}"><i class="fas fa-exchange-alt"></i>Выдачи/возвраты</a></li>
+            <li><a href="{{ url_for('supplies_page') }}" class="active"><i class="fas fa-truck-loading"></i>Поставки</a></li>
+            <li><a href="{{ url_for('reports_page') }}"><i class="fas fa-chart-bar"></i>Отчеты</a></li>
+        </ul></nav>
+    </aside>
+    <main class="main-content">
+        <header class="header"><h1>Учет поставок</h1></header>
+        <div class="tabs">
+            <div class="tab active" onclick="showTab('suppliers-tab')">Поставщики</div>
+            <div class="tab" onclick="showTab('contracts-tab')">Договоры</div>
+            <div class="tab" onclick="showTab('invoices-tab')">Накладные</div>
+            <div class="tab" onclick="showTab('accept-tab')">Акты приёма</div>
+            <div class="tab" onclick="showTab('writeoff-tab')">Акты списания</div>
+        </div>
+
+        <div id="suppliers-tab" class="tab-content">
+            <div class="form-container">
+                <h2 class="form-title">Поставщики</h2>
+                <div class="form-row">
+                    <input id="supplier-name" class="form-control" placeholder="Название">
+                    <input id="supplier-contact-person" class="form-control" placeholder="Контактное лицо">
+                    <input id="supplier-phone" class="form-control" placeholder="Телефон">
+                    <input id="supplier-email" class="form-control" placeholder="Email">
+                </div>
+                <div class="form-row">
+                    <input id="supplier-address" class="form-control" placeholder="Адрес">
+                    <input id="supplier-commentary" class="form-control" placeholder="Комментарий">
+                </div>
+                <button class="btn btn-primary" onclick="createSupplier()">Сохранить поставщика</button>
+                <table class="issue-history-table"><thead><tr><th>ID</th><th>Название</th><th>Контакт</th><th>Телефон</th><th>Email</th><th>Активен</th><th>Действия</th></tr></thead><tbody id="suppliers-body"></tbody></table>
+            </div>
+        </div>
+
+        <div id="contracts-tab" class="tab-content" style="display:none;">
+            <div class="form-container">
+                <h2 class="form-title">Договоры</h2>
+                <div class="form-row">
+                    <input id="contract-number" class="form-control" placeholder="Номер договора">
+                    <input id="contract-date" type="date" class="form-control">
+                    <select id="contract-supplier" class="form-control"></select>
+                    <input id="contract-start" type="date" class="form-control">
+                    <input id="contract-end" type="date" class="form-control">
+                </div>
+                <div class="form-row"><input id="contract-terms" class="form-control" placeholder="Сумма/условия"><input id="contract-comment" class="form-control" placeholder="Комментарий"></div>
+                <button class="btn btn-primary" onclick="createContract()">Сохранить договор</button>
+                <table class="issue-history-table"><thead><tr><th>ID</th><th>Номер</th><th>Поставщик</th><th>Период</th><th>Условия</th></tr></thead><tbody id="contracts-body"></tbody></table>
+            </div>
+        </div>
+
+        <div id="invoices-tab" class="tab-content" style="display:none;">
+            <div class="form-container">
+                <h2 class="form-title">Накладные</h2>
+                <div class="form-row">
+                    <input id="invoice-number" class="form-control" placeholder="Номер накладной">
+                    <input id="invoice-date" type="date" class="form-control">
+                    <select id="invoice-supplier" class="form-control"></select>
+                    <select id="invoice-contract" class="form-control"></select>
+                    <input id="invoice-comment" class="form-control" placeholder="Комментарий">
+                </div>
+                <div class="form-row">
+                    <select id="invoice-book" class="form-control"></select>
+                    <input id="invoice-qty" type="number" class="form-control" placeholder="Кол-во" value="1">
+                    <input id="invoice-price" type="number" class="form-control" placeholder="Цена" value="0" step="0.01">
+                    <button class="btn btn-secondary" onclick="addInvoiceItem()">Добавить позицию</button>
+                </div>
+                <table class="issue-history-table"><thead><tr><th>Книга</th><th>Кол-во</th><th>Цена</th></tr></thead><tbody id="invoice-items-body"></tbody></table>
+                <button class="btn btn-primary" onclick="createInvoice()">Сохранить накладную</button>
+                <table class="issue-history-table"><thead><tr><th>ID</th><th>Номер</th><th>Поставщик</th><th>Итого</th></tr></thead><tbody id="invoices-body"></tbody></table>
+            </div>
+        </div>
+
+        <div id="accept-tab" class="tab-content" style="display:none;">
+            <div class="form-container">
+                <h2 class="form-title">Акты приёма</h2>
+                <div class="form-row">
+                    <input id="accept-number" class="form-control" placeholder="Номер акта">
+                    <input id="accept-date" type="date" class="form-control">
+                    <select id="accept-supplier" class="form-control"></select>
+                    <select id="accept-contract" class="form-control"></select>
+                    <input id="accept-comment" class="form-control" placeholder="Комментарий">
+                </div>
+                <div class="form-row">
+                    <select id="accept-book" class="form-control"></select>
+                    <input id="accept-qty" type="number" class="form-control" value="1">
+                    <input id="accept-price" type="number" class="form-control" value="0" step="0.01">
+                    <button class="btn btn-secondary" onclick="addAcceptItem()">Добавить позицию</button>
+                </div>
+                <table class="issue-history-table"><thead><tr><th>Книга</th><th>Кол-во</th><th>Цена</th></tr></thead><tbody id="accept-items-body"></tbody></table>
+                <button class="btn btn-primary" onclick="createAcceptanceAct()">Подтвердить акт приёма</button>
+                <table class="issue-history-table"><thead><tr><th>ID</th><th>Номер</th><th>Поставщик</th><th>Итого</th><th>Статус</th></tr></thead><tbody id="accept-body"></tbody></table>
+            </div>
+        </div>
+
+        <div id="writeoff-tab" class="tab-content" style="display:none;">
+            <div class="form-container">
+                <h2 class="form-title">Акты списания экземпляров</h2>
+                <div class="form-row">
+                    <input id="writeoff-number" class="form-control" placeholder="Номер акта">
+                    <input id="writeoff-date" type="date" class="form-control">
+                    <input id="writeoff-basis" class="form-control" placeholder="Основание">
+                    <input id="writeoff-comment" class="form-control" placeholder="Комментарий">
+                </div>
+                <div class="form-row">
+                    <select id="writeoff-copy" class="form-control"></select>
+                    <select id="writeoff-reason" class="form-control">
+                        <option value="wear">износ</option>
+                        <option value="loss">утеря</option>
+                        <option value="damage">повреждение</option>
+                        <option value="obsolete">устаревание</option>
+                        <option value="other">другое</option>
+                    </select>
+                    <button class="btn btn-secondary" onclick="addWriteoffItem()">Добавить экземпляр</button>
+                </div>
+                <table class="issue-history-table"><thead><tr><th>Экземпляр</th><th>Причина</th></tr></thead><tbody id="writeoff-items-body"></tbody></table>
+                <button class="btn btn-primary" onclick="createWriteoffAct()">Подтвердить акт списания</button>
+                <table class="issue-history-table"><thead><tr><th>ID</th><th>Номер</th><th>Дата</th><th>Основание</th><th>Статус</th></tr></thead><tbody id="writeoff-body"></tbody></table>
+            </div>
+        </div>
+    </main>
+</div>
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script src="{{ url_for('static', filename='js/supplies.js') }}"></script>
+</body>
+</html>
