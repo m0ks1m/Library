@@ -36,7 +36,6 @@ def role_required(*roles):
 def ensure_reader_schema():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='reader'")
     if not cursor.fetchone():
         conn.close()
@@ -53,6 +52,7 @@ def ensure_reader_schema():
     if 'status' not in columns:
         cursor.execute("ALTER TABLE reader ADD COLUMN status VARCHAR(20) DEFAULT 'ACTIVE'")
         cursor.execute("UPDATE reader SET status = COALESCE(status, 'ACTIVE')")
+
     if 'city' not in columns:
         cursor.execute("ALTER TABLE reader ADD COLUMN city VARCHAR(120)")
     if 'street' not in columns:
@@ -96,6 +96,7 @@ def ensure_reader_schema():
             FOREIGN KEY (employee_id) REFERENCES employee (id)
         )
     """)
+
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS supplier_contract (
@@ -217,8 +218,6 @@ def ensure_reader_schema():
 
     conn.commit()
     conn.close()
-
-
 
 
 def log_reader_action(cursor, reader_id, action_type, details='', employee_id=None):
@@ -445,9 +444,23 @@ def list_readers():
 
         sql = """
             SELECT
+
                 r.id, r.ticket_number, r.first_name, r.last_name, r.patronymic, r.date_birth,
                 r.phone, r.email, r.city, r.street, r.house, r.apartment,
                 r.registered_at, r.status, r.penalty_points,
+                r.id,
+                r.ticket_number,
+                r.first_name,
+                r.last_name,
+                r.patronymic,
+                r.date_birth,
+                r.address,
+                r.email,
+                r.phone,
+                r.registered_at,
+                r.status,
+                r.penalty_points,
+
                 COALESCE(SUM(CASE WHEN gb.return_date_fact IS NULL THEN gb.quantity ELSE 0 END), 0) AS active_issues,
                 COALESCE(SUM(CASE WHEN gb.return_date_fact IS NULL AND date(gb.return_date) < date('now') THEN gb.quantity ELSE 0 END), 0) AS overdue_issues
             FROM reader r
@@ -458,17 +471,26 @@ def list_readers():
         if query:
             sql += """
                 AND (
+
                     CAST(r.id AS TEXT) = ?
+
+                    r.id = ?
+
                     OR r.ticket_number LIKE ?
                     OR (r.last_name || ' ' || r.first_name || ' ' || COALESCE(r.patronymic, '')) LIKE ?
                     OR r.phone LIKE ?
                     OR r.email LIKE ?
                 )
             """
+
             params.extend([query, f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"])
 
         sql += """
             GROUP BY r.id
+            params.extend([query if query.isdigit() else -1, f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"])
+
+        sql += """
+            GROUP BY r.id, r.ticket_number, r.first_name, r.last_name, r.patronymic, r.date_birth, r.address, r.email, r.phone, r.registered_at, r.status, r.penalty_points
             ORDER BY r.last_name, r.first_name
         """
 
@@ -486,7 +508,11 @@ def add_reader():
     ensure_reader_schema()
     try:
         data = request.get_json() or {}
+
         required_fields = ['firstName', 'lastName', 'phone', 'email', 'birthdate', 'city', 'street', 'house']
+
+        required_fields = ['firstName', 'lastName', 'phone', 'address', 'email', 'birthdate']
+
         if not all(data.get(field) for field in required_fields):
             return jsonify({'error': 'Не заполнены обязательные поля'}), 400
 
@@ -494,6 +520,7 @@ def add_reader():
         cursor = conn.cursor()
 
         cursor.execute("""
+
             INSERT INTO reader (
                 first_name, last_name, patronymic, date_birth, phone, email,
                 city, street, house, apartment, address, registered_at, status
@@ -503,6 +530,16 @@ def add_reader():
             data['birthdate'], data['phone'], data['email'].strip().lower(),
             data['city'].strip(), data['street'].strip(), data['house'].strip(), data.get('apartment', '').strip(),
             f"г. {data['city'].strip()}, ул. {data['street'].strip()}, д. {data['house'].strip()}, кв. {data.get('apartment', '').strip()}",
+            INSERT INTO reader (first_name, last_name, patronymic, date_birth, phone, address, email, registered_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+        """, (
+            data['firstName'].strip(),
+            data['lastName'].strip(),
+            data.get('patronymic', '').strip(),
+            data['birthdate'],
+            data['phone'],
+            data['address'].strip(),
+            data['email'].strip(),
             data.get('status', 'ACTIVE')
         ))
 
@@ -513,7 +550,11 @@ def add_reader():
 
         conn.commit()
         conn.close()
+
         return jsonify({'success': True, 'readerId': reader_id, 'ticketNumber': ticket_number}), 201
+
+
+        return jsonify({'success': True, 'message': 'Читатель успешно зарегистрирован', 'readerId': reader_id, 'ticketNumber': ticket_number}), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -539,6 +580,18 @@ def get_reader_details(reader_id):
                 r.id, r.ticket_number, r.first_name, r.last_name, r.patronymic, r.date_birth,
                 r.phone, r.email, r.city, r.street, r.house, r.apartment,
                 r.registered_at, r.status, r.penalty_points,
+                r.id,
+                r.ticket_number,
+                r.first_name,
+                r.last_name,
+                r.patronymic,
+                r.date_birth,
+                r.address,
+                r.email,
+                r.phone,
+                r.registered_at,
+                r.status,
+                r.penalty_points,
                 COALESCE(SUM(CASE WHEN gb.return_date_fact IS NULL THEN gb.quantity ELSE 0 END), 0) AS active_issues,
                 COALESCE(SUM(CASE WHEN gb.return_date_fact IS NULL AND date(gb.return_date) < date('now') THEN gb.quantity ELSE 0 END), 0) AS overdue_issues
             FROM reader r
@@ -911,6 +964,133 @@ def available_copies_api():
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
     return jsonify({'success': True, 'copies': rows})
+        cursor.execute("""
+            SELECT date(created_at) AS created_at, action_type, details
+            FROM reader_action_history
+            WHERE reader_id = ?
+            ORDER BY created_at DESC, id DESC
+        """, (reader_id,))
+        action_history = [dict(row) for row in cursor.fetchall()]
+
+        cursor.execute("""
+            SELECT date(created_at) AS created_at, delta_points, reason, commentary
+            FROM reader_penalty_history
+            WHERE reader_id = ?
+            ORDER BY created_at DESC, id DESC
+        """, (reader_id,))
+        penalty_history = [dict(row) for row in cursor.fetchall()]
+
+        conn.close()
+        return jsonify({'success': True, 'reader': dict(reader), 'action_history': action_history, 'penalty_history': penalty_history}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/readers/<int:reader_id>', methods=['PUT'])
+@login_required
+def update_reader(reader_id):
+    ensure_reader_schema()
+    try:
+        data = request.get_json() or {}
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT id, status FROM reader WHERE id = ?', (reader_id,))
+        existing = cursor.fetchone()
+        if not existing:
+            conn.close()
+            return jsonify({'error': 'Читатель не найден'}), 404
+
+        cursor.execute("""
+            UPDATE reader
+            SET first_name = ?, last_name = ?, patronymic = ?, date_birth = ?, phone = ?, address = ?, email = ?, status = ?
+            WHERE id = ?
+        """, (
+            data.get('firstName', '').strip(),
+            data.get('lastName', '').strip(),
+            data.get('patronymic', '').strip(),
+            data.get('birthdate'),
+            data.get('phone'),
+            data.get('address', '').strip(),
+            data.get('email', '').strip(),
+            data.get('status', 'ACTIVE'),
+            reader_id
+        ))
+
+        log_reader_action(cursor, reader_id, 'UPDATE', 'Обновлены данные карточки читателя', current_user.id)
+        if existing[1] != data.get('status', 'ACTIVE'):
+            log_reader_action(cursor, reader_id, 'STATUS_CHANGE', f"Статус изменен на {data.get('status', 'ACTIVE')}", current_user.id)
+
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/readers/<int:reader_id>', methods=['DELETE'])
+@login_required
+def delete_reader(reader_id):
+    ensure_reader_schema()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT COUNT(*) FROM given_book WHERE reader_id = ? AND return_date_fact IS NULL', (reader_id,))
+        active_issues = cursor.fetchone()[0]
+        if active_issues > 0:
+            conn.close()
+            return jsonify({'error': 'Нельзя удалить читателя с активными выдачами'}), 400
+
+        cursor.execute('DELETE FROM reader_penalty_history WHERE reader_id = ?', (reader_id,))
+        cursor.execute('DELETE FROM reader_action_history WHERE reader_id = ?', (reader_id,))
+        cursor.execute('DELETE FROM reader WHERE id = ?', (reader_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/readers/<int:reader_id>/penalty', methods=['POST'])
+@login_required
+def change_reader_penalty(reader_id):
+    ensure_reader_schema()
+    try:
+        data = request.get_json() or {}
+        delta_points = int(data.get('delta_points', 0))
+        reason = data.get('reason', 'other')
+        commentary = data.get('commentary', '')
+
+        if delta_points == 0:
+            return jsonify({'error': 'Значение изменения штрафных баллов не может быть 0'}), 400
+
+        allowed_reasons = {'overdue', 'book_damage', 'book_loss', 'rule_violation', 'other'}
+        if reason not in allowed_reasons:
+            return jsonify({'error': 'Некорректная причина начисления/списания'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT penalty_points FROM reader WHERE id = ?', (reader_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'error': 'Читатель не найден'}), 404
+
+        new_value = max(0, row[0] + delta_points)
+        applied_delta = new_value - row[0]
+
+        cursor.execute('UPDATE reader SET penalty_points = ? WHERE id = ?', (new_value, reader_id))
+        log_penalty_change(cursor, reader_id, applied_delta, reason, commentary, current_user.id)
+        action_type = 'PENALTY_ADD' if applied_delta >= 0 else 'PENALTY_DEDUCT'
+        log_reader_action(cursor, reader_id, action_type, f"Изменение баллов: {applied_delta}. Причина: {reason}", current_user.id)
+
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'penalty_points': new_value, 'delta_points': applied_delta}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/books/all', methods=['GET'])

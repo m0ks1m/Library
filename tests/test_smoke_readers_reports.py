@@ -32,6 +32,7 @@ class ReadersReportsSmokeTest(unittest.TestCase):
             'street': 'Советская',
             'house': '11',
             'apartment': '7',
+            'address': 'г. Тверь',
             'status': 'ACTIVE'
         })
         self.assertEqual(create_resp.status_code, 201)
@@ -52,6 +53,7 @@ class ReadersReportsSmokeTest(unittest.TestCase):
             'street': 'Советская',
             'house': '11',
             'apartment': '7',
+            'address': 'г. Тверь',
             'status': 'BLOCKED'
         })
         self.assertEqual(update_resp.status_code, 200)

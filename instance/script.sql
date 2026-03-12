@@ -235,3 +235,26 @@ CREATE TABLE IF NOT EXISTS `write_off_act_item` (
   FOREIGN KEY (`act_id`) REFERENCES `write_off_act` (`id`),
   FOREIGN KEY (`copy_id`) REFERENCES `book_copy` (`id`)
 );
+
+CREATE TABLE IF NOT EXISTS `reader_penalty_history` (
+  `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+  `reader_id` INTEGER NOT NULL,
+  `delta_points` INTEGER NOT NULL,
+  `reason` VARCHAR(30) NOT NULL,
+  `commentary` VARCHAR(250),
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `employee_id` INTEGER,
+  FOREIGN KEY (`reader_id`) REFERENCES `reader` (`id`),
+  FOREIGN KEY (`employee_id`) REFERENCES `employee` (`id`)
+);
+
+CREATE TABLE IF NOT EXISTS `reader_action_history` (
+  `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+  `reader_id` INTEGER NOT NULL,
+  `action_type` VARCHAR(50) NOT NULL,
+  `details` VARCHAR(500),
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `employee_id` INTEGER,
+  FOREIGN KEY (`reader_id`) REFERENCES `reader` (`id`),
+  FOREIGN KEY (`employee_id`) REFERENCES `employee` (`id`)
+);
