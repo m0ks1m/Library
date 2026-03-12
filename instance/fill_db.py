@@ -1,5 +1,6 @@
 import sqlite3
 from datetime import date, timedelta
+
 from config import DB_PATH
 
 
@@ -11,25 +12,26 @@ def fill():
         cursor.execute("PRAGMA foreign_keys = ON")
 
         # Создание таблиц
-        with open('instance/script.sql', encoding='utf-8') as sql_script:
+        with open("instance/script.sql", encoding="utf-8") as sql_script:
             cursor.executescript(sql_script.read())
 
-        # Очищаем таблицы, чтобы повторный запуск fill() не плодил дубли.
+        # Очищаем таблицы, чтобы повторный запуск fill() не плодил дубли
         tables_in_delete_order = [
-            'reader_action_history',
-            'reader_penalty_history',
-            'lading_bill',
-            'order_request',
-            'debiting_act',
-            'given_book',
-            'book',
-            'genre',
-            'author',
-            'supplier',
-            'reader',
-            'employee',
-            'system_settings',
+            "reader_action_history",
+            "reader_penalty_history",
+            "lading_bill",
+            "order_request",
+            "debiting_act",
+            "given_book",
+            "book",
+            "genre",
+            "author",
+            "supplier",
+            "reader",
+            "employee",
+            "system_settings",
         ]
+
         for table_name in tables_in_delete_order:
             cursor.execute(f"DELETE FROM {table_name}")
             cursor.execute("DELETE FROM sqlite_sequence WHERE name = ?", (table_name,))
@@ -41,7 +43,10 @@ def fill():
             ("Дмитрий", "Смирнов", "Олегович", "Бухгалтер", "user3", "pass"),
         ]
         cursor.executemany(
-            "INSERT INTO employee (first_name, last_name, patronymic, position, login, password) VALUES (?, ?, ?, ?, ?, ?)",
+            """
+            INSERT INTO employee (first_name, last_name, patronymic, position, login, password)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
             employees,
         )
 
@@ -53,7 +58,10 @@ def fill():
             ("Айзек", "Азимов", "", "1920", "США"),
         ]
         cursor.executemany(
-            "INSERT INTO author (first_name, last_name, patronymic, birth_year, country) VALUES (?, ?, ?, ?, ?)",
+            """
+            INSERT INTO author (first_name, last_name, patronymic, birth_year, country)
+            VALUES (?, ?, ?, ?, ?)
+            """,
             authors,
         )
 
@@ -65,7 +73,10 @@ def fill():
             ("Научная", "Фантастика"),
         ]
         cursor.executemany(
-            "INSERT INTO genre (genre_type, name) VALUES (?, ?)",
+            """
+            INSERT INTO genre (genre_type, name)
+            VALUES (?, ?)
+            """,
             genres,
         )
 
@@ -77,7 +88,10 @@ def fill():
             ("isbn4", "Основание", "1951", 7, 4, 4, "Азбука"),
         ]
         cursor.executemany(
-            "INSERT INTO book (isbn, name, year, quantity, author_id, genre_id, publishing_house) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            """
+            INSERT INTO book (isbn, name, year, quantity, author_id, genre_id, publishing_house)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
             books,
         )
 
@@ -85,18 +99,65 @@ def fill():
         today = date.today()
 
         # Читатели
+        # ВАЖНО: оставляем только новую структуру на 11 полей,
+        # потому что INSERT ниже ожидает 11 значений
         readers = [
-
-            ("RB-0001", "Алексей", "Сидоров", "Алексеевич", "1990-05-15", "г. Москва", "alex@example.com", "71234567890", str(today - timedelta(days=120)), "ACTIVE", 0),
-            ("RB-0002", "Мария", "Кузнецова", "Сергеевна", "1985-08-20", "г. Казань", "maria@example.com", "79876543210", str(today - timedelta(days=80)), "ACTIVE", 5),
-            ("RB-0003", "Илья", "Орлов", "Петрович", "1994-11-02", "г. Самара", "ilya@example.com", "79997774411", str(today - timedelta(days=35)), "BLOCKED", 1),
-            ("Алексей", "Сидоров", "Алексеевич", "1990-05-15", "г. Москва", "alex@example.com", "71234567890", 0),
-            ("Мария", "Кузнецова", "Сергеевна", "1985-08-20", "г. Казань", "maria@example.com", "79876543210", 5),
-            ("Илья", "Орлов", "Петрович", "1994-11-02", "г. Самара", "ilya@example.com", "79997774411", 1),
-
+            (
+                "RB-0001",
+                "Алексей",
+                "Сидоров",
+                "Алексеевич",
+                "1990-05-15",
+                "г. Москва",
+                "alex@example.com",
+                "71234567890",
+                str(today - timedelta(days=120)),
+                "ACTIVE",
+                0,
+            ),
+            (
+                "RB-0002",
+                "Мария",
+                "Кузнецова",
+                "Сергеевна",
+                "1985-08-20",
+                "г. Казань",
+                "maria@example.com",
+                "79876543210",
+                str(today - timedelta(days=80)),
+                "ACTIVE",
+                5,
+            ),
+            (
+                "RB-0003",
+                "Илья",
+                "Орлов",
+                "Петрович",
+                "1994-11-02",
+                "г. Самара",
+                "ilya@example.com",
+                "79997774411",
+                str(today - timedelta(days=35)),
+                "BLOCKED",
+                1,
+            ),
         ]
         cursor.executemany(
-            "INSERT INTO reader (ticket_number, first_name, last_name, patronymic, date_birth, address, email, phone, registered_at, status, penalty_points) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            """
+            INSERT INTO reader (
+                ticket_number,
+                first_name,
+                last_name,
+                patronymic,
+                date_birth,
+                address,
+                email,
+                phone,
+                registered_at,
+                status,
+                penalty_points
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
             readers,
         )
 
@@ -106,32 +167,48 @@ def fill():
             ("Литература", "sales@literatura.ru", "Ольга Петрова"),
         ]
         cursor.executemany(
-            "INSERT INTO supplier (name, contact, contact_person) VALUES (?, ?, ?)",
+            """
+            INSERT INTO supplier (name, contact, contact_person)
+            VALUES (?, ?, ?)
+            """,
             suppliers,
         )
 
         # Системные настройки
         cursor.execute(
-            "INSERT INTO system_settings (standart_rental_period, max_books_per_reader, late_return_penalty) VALUES (?, ?, ?)",
+            """
+            INSERT INTO system_settings (
+                standart_rental_period,
+                max_books_per_reader,
+                late_return_penalty
+            ) VALUES (?, ?, ?)
+            """,
             (14, 5, 10),
         )
 
-# Даты для тестовых сценариев отчетов
-today = date.today()
-
-# Выданные книги: активные, просроченные и возвращенные
-given_books = [
+        # Выданные книги: активные, просроченные и возвращённые
+        given_books = [
             # просрочена
             (1, str(today - timedelta(days=24)), str(today - timedelta(days=10)), None, 1, 1, 1),
             # возвращена вовремя
             (1, str(today - timedelta(days=14)), str(today - timedelta(days=7)), str(today - timedelta(days=8)), 2, 1, 2),
-            # активная (не просрочена)
+            # активная, не просрочена
             (1, str(today - timedelta(days=3)), str(today + timedelta(days=7)), None, 1, 1, 3),
             # просрочена у второго читателя
             (1, str(today - timedelta(days=18)), str(today - timedelta(days=5)), None, 2, 2, 4),
         ]
         cursor.executemany(
-            "INSERT INTO given_book (quantity, given_date, return_date, return_date_fact, reader_id, employee_id, book_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            """
+            INSERT INTO given_book (
+                quantity,
+                given_date,
+                return_date,
+                return_date_fact,
+                reader_id,
+                employee_id,
+                book_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
             given_books,
         )
 
@@ -142,7 +219,10 @@ given_books = [
             (str(today - timedelta(days=2)), 6, 1, 2),
         ]
         cursor.executemany(
-            "INSERT INTO order_request (date, quantity, book_id, employee_id) VALUES (?, ?, ?, ?)",
+            """
+            INSERT INTO order_request (date, quantity, book_id, employee_id)
+            VALUES (?, ?, ?, ?)
+            """,
             order_requests,
         )
 
@@ -153,7 +233,10 @@ given_books = [
             (str(today - timedelta(days=1)), 1, 3, 1),
         ]
         cursor.executemany(
-            "INSERT INTO lading_bill (date, book_id, order_request_id, supplier_id) VALUES (?, ?, ?, ?)",
+            """
+            INSERT INTO lading_bill (date, book_id, order_request_id, supplier_id)
+            VALUES (?, ?, ?, ?)
+            """,
             lading_bills,
         )
 
@@ -164,7 +247,10 @@ given_books = [
             (str(today - timedelta(days=4)), 1, "Дефект печати", 1),
         ]
         cursor.executemany(
-            "INSERT INTO debiting_act (date, quantity, commentary, book_id) VALUES (?, ?, ?, ?)",
+            """
+            INSERT INTO debiting_act (date, quantity, commentary, book_id)
+            VALUES (?, ?, ?, ?)
+            """,
             debiting_acts,
         )
 
@@ -175,7 +261,16 @@ given_books = [
             (3, 1, "other", "Ручная корректировка", str(today - timedelta(days=2)), 2),
         ]
         cursor.executemany(
-            "INSERT INTO reader_penalty_history (reader_id, delta_points, reason, commentary, created_at, employee_id) VALUES (?, ?, ?, ?, ?, ?)",
+            """
+            INSERT INTO reader_penalty_history (
+                reader_id,
+                delta_points,
+                reason,
+                commentary,
+                created_at,
+                employee_id
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
             penalty_history,
         )
 
@@ -184,14 +279,23 @@ given_books = [
             (1, "CREATE", "Создана карточка читателя", str(today - timedelta(days=120)), 1),
             (2, "CREATE", "Создана карточка читателя", str(today - timedelta(days=80)), 1),
             (2, "PENALTY_ADD", "Начислено 3 балла (просрочка)", str(today - timedelta(days=9)), 1),
-            (3, "STATUS_CHANGE", "Статус изменен на BLOCKED", str(today - timedelta(days=1)), 2),
+            (3, "STATUS_CHANGE", "Статус изменён на BLOCKED", str(today - timedelta(days=1)), 2),
         ]
         cursor.executemany(
-            "INSERT INTO reader_action_history (reader_id, action_type, details, created_at, employee_id) VALUES (?, ?, ?, ?, ?)",
+            """
+            INSERT INTO reader_action_history (
+                reader_id,
+                action_type,
+                details,
+                created_at,
+                employee_id
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
             reader_actions,
         )
 
         conn.commit()
         print("База данных успешно заполнена тестовыми данными!")
+
     finally:
         conn.close()
