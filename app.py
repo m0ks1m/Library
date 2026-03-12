@@ -6,16 +6,6 @@ import sqlite3
 import os
 from instance.fill_db import fill
 from config import DB_PATH
-from reports.fill_reports import (
-    generate_books_by_authors_report,
-    generate_issued_returned_books_report,
-    generate_issued_books_report,
-    generate_books_by_genres_report,
-    generate_book_collection_report,
-    generate_new_books_report,
-    generate_debited_books_report,
-    convert_docx_to_pdf
-)
 
 app = Flask(__name__)
 app.secret_key = 'SECRET'
@@ -79,7 +69,7 @@ def reports_page():
 @role_required('Администратор')
 @login_required
 def settings_page():
-    return render_template('settings.html', role=current_user.role, system_settings = get_system_settings()[0].json)
+    return render_template('settings.html', role=current_user.role, system_settings={'system_settings': get_system_settings_data() or {}})
 
 ###############################################################################################
 
@@ -112,7 +102,7 @@ def login_page():
                 'role': user[3]  
             })()
             login_user(user_obj)
-            return redirect(url_for('protected'))
+            return redirect(url_for('index'))
         flash("Неверный логин или пароль")
     return render_template('login.html')
 
@@ -443,12 +433,13 @@ def check_book_by_isbn():
                 "book": {
                     "name": book[1],
                     "year": book[2],
-                    "publishing_house": book[3],
-                    "description": book[4]
+                    "publishing_house": book[3]
                 },
-                "author_name": book[6],
-                "genre_id": book[7]
+                "author_name": book[5],
+                "genre_id": book[6],
+                "genre_name": book[7]
             })
+
         return jsonify({"exists": False})
 
     except Exception as e:
@@ -575,6 +566,17 @@ def get_book_by_identifier():
 @app.route('/api/reports/generate', methods=['POST'])
 @login_required
 def generate_report_api():
+    from reports.fill_reports import (
+        generate_books_by_authors_report,
+        generate_issued_returned_books_report,
+        generate_issued_books_report,
+        generate_books_by_genres_report,
+        generate_book_collection_report,
+        generate_new_books_report,
+        generate_debited_books_report,
+        convert_docx_to_pdf
+    )
+
     try:
         data = request.get_json()
         report_type = data.get('report_type')
@@ -795,29 +797,38 @@ def return_book():
     
     
     
+def get_system_settings_data():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute('SELECT standart_rental_period, max_books_per_reader, late_return_penalty FROM system_settings ORDER BY id DESC LIMIT 1')
+        sys_set = cursor.fetchone()
+        if not sys_set:
+            return None
+
+        return {
+            "standart_rental_period": sys_set[0],
+            "max_books_per_reader": sys_set[1],
+            "late_return_penalty": sys_set[2]
+        }
+    finally:
+        conn.close()
+
+
 # Загрузка системных настроек
 @app.route('/api/system/get', methods=['GET'])
 def get_system_settings():
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        
-        cursor.execute('SELECT * FROM system_settings ORDER BY id DESC LIMIT 1')
-        sys_set = cursor.fetchone()
-        
-        
-        if sys_set:
-            return jsonify({"success": True,
-                            "system_settings":
-                                {"standart_rental_period": sys_set[1],
-                                "max_books_per_reader": sys_set[2],
-                                "late_return_penalty": sys_set[3]}}), 200
-        else:
+        system_settings = get_system_settings_data()
+        if not system_settings:
             return jsonify({"error": "Не заполнены системные настройки"}), 500
-        
+
+        return jsonify({"success": True, "system_settings": system_settings}), 200
+
     except Exception as ex:
         return jsonify({"error": str(ex)}), 500
-        
+
 # Загрузка системных настроек
 @app.route('/api/system/update', methods=['POST'])
 def load_system_settings():
