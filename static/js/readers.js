@@ -1,187 +1,209 @@
-document.addEventListener('DOMContentLoaded', function () {
-    // Проверка параметров URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const action = urlParams.get('action');
+let selectedReaderId = null;
 
-    if (action === 'search') {
-        document.querySelector('.tab[onclick*="search-reader"]').click();
-    }
-
-    // Маска на телефон (через jQuery Mask Plugin)
-    $(function () {
-        $("#phone").mask("+7 (999) 999-99 99");
-    });
+document.addEventListener('DOMContentLoaded', async function () {
+    await searchReaders();
 });
 
-// Сохранение читателя
-function saveReader() {
-    const birthdateStr = document.getElementById('birthdate').value;
-    if (!birthdateStr) {
-        alert("Пожалуйста, введите дату рождения");
-        return;
-    }
-
-    const birthdate = new Date(birthdateStr);
-    const today = new Date();
-
-    if (birthdate > today) {
-        alert("Дата рождения не может быть в будущем");
-        return;
-    }
-
-    const age = today.getFullYear() - birthdate.getFullYear();
-    const monthDiff = today.getMonth() - birthdate.getMonth();
-    const dayDiff = today.getDate() - birthdate.getDate();
-
-    const adjustedAge = (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) ? age - 1 : age;
-
-    if (adjustedAge < 5) {
-        alert("Читателю должно быть не менее 5 лет");
-        return;
-    } else if (adjustedAge > 100) {
-        alert("Вам 100 лет +, идите отдыхайте уже");
-    }
-
-
-    if (!validateForm('add-reader-form')) {
-        alert('Пожалуйста, заполните все обязательные поля');
-        return;
-    }
-
-    // Собираем данные формы
-    const formData = {
-        firstName: document.getElementById('first-name').value,
-        lastName: document.getElementById('last-name').value,
-        phone: document.getElementById('phone').value.replace(/\D/g, ''),
-        patronymic: document.getElementById('patronymic').value,
+function getReaderPayload() {
+    return {
+        firstName: document.getElementById('first-name').value.trim(),
+        lastName: document.getElementById('last-name').value.trim(),
+        patronymic: document.getElementById('patronymic').value.trim(),
         birthdate: document.getElementById('birthdate').value,
-        email: document.getElementById('email').value,
-        address: document.getElementById('address').value
+        phone: document.getElementById('phone').value.replace(/\D/g, ''),
+        email: document.getElementById('email').value.trim(),
+        address: document.getElementById('address').value.trim(),
+        status: document.getElementById('reader-status').value
     };
-
-    // Отправляем данные на сервер
-    fetch('http://localhost:5000/api/readers', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData)
-    })
-    .then(response => {
-        if (!response.ok) {
-            return response.json().then(err => { throw err; });
-        }
-        return response.json();
-    })
-    .then(data => {
-        alert(data.message || 'Читатель успешно зарегистрирован!');
-        resetReaderForm();
-    })
-    .catch(error => {
-        console.error('Ошибка:', error);
-        alert(error.error || 'Произошла ошибка при сохранении читателя');
-    });
 }
 
-// Сброс формы читателя
-function resetReaderForm() {
-    document.getElementById('first-name').value = '';
-    document.getElementById('last-name').value = '';
-    document.getElementById('phone').value = '';
-    document.getElementById('patronymic').value = '';
-    document.getElementById('birthdate').value = '';
-    document.getElementById('email').value = '';
-    document.getElementById('address').value = '';
-}
+async function saveReader() {
+    const readerId = document.getElementById('reader-id').value;
+    const payload = getReaderPayload();
 
-// Поиск читателей
-async function searchReaders() {
-    const query = document.getElementById('search-query').value.trim();
-    
-    if (!query) {
-        alert('Пожалуйста, введите поисковый запрос');
+    if (!payload.firstName || !payload.lastName || !payload.birthdate || !payload.phone || !payload.email || !payload.address) {
+        alert('Заполните обязательные поля');
         return;
     }
 
-    try {
-        // Отправляем запрос к API
-        const response = await fetch(`/api/readers/search?query=${encodeURIComponent(query)}`, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json'
-            }
-        });
+    const url = readerId ? `/api/readers/${readerId}` : '/api/readers';
+    const method = readerId ? 'PUT' : 'POST';
 
-        if (!response.ok) {
-            throw new Error(`Ошибка HTTP: ${response.status}`);
-        }
+    const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    const result = await response.json();
 
-        const data = await response.json();
-        
-        if (data.success) {
-            displayReaderResults(data.readers);
-        } else {
-            alert(data.error || 'Читатели не найдены');
-        }
-    } catch (error) {
-        console.error('Ошибка при поиске читателей:', error);
-        alert('Произошла ошибка при поиске читателей');
+    if (!response.ok || !result.success) {
+        alert(result.error || 'Ошибка сохранения');
+        return;
     }
+
+    alert(readerId ? 'Карточка обновлена' : 'Читатель добавлен');
+    resetReaderForm();
+    await searchReaders();
 }
 
-// Отображение результатов поиска читателей (остается без изменений)
+function resetReaderForm() {
+    document.getElementById('reader-id').value = '';
+    document.getElementById('reader-form-title').textContent = 'Регистрация нового читателя';
+    ['first-name', 'last-name', 'patronymic', 'birthdate', 'phone', 'email', 'address'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('reader-status').value = 'ACTIVE';
+}
+
+async function searchReaders() {
+    const query = document.getElementById('search-query')?.value.trim() || '';
+    const response = await fetch(`/api/readers?query=${encodeURIComponent(query)}`);
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+        alert(data.error || 'Ошибка поиска читателей');
+        return;
+    }
+
+    displayReaderResults(data.readers || []);
+}
+
 function displayReaderResults(results) {
-    console.log(results);
     const tbody = document.getElementById('readers-table-body');
     tbody.innerHTML = '';
-
-    if (results.length === 0) {
-        document.getElementById('reader-results').style.display = 'none';
-        alert('Читатели не найдены');
-        return;
-    }
 
     results.forEach(reader => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>${reader.id}</td>
-            <td>${reader.lastName}</td>
-            <td>${reader.firstName}</td>
-            <td>${reader.patronymic || '-'}</td>
-            <td>${reader.birthdate}</td>
-            <td>${reader.phone}</td>
-            <td>${reader.adress}</td>
-            <td>${reader.email}</td>
+            <td>${reader.ticket_number || '-'}</td>
+            <td>${reader.last_name} ${reader.first_name} ${reader.patronymic || ''}</td>
+            <td>${reader.phone || '-'}</td>
+            <td>${reader.email || '-'}</td>
+            <td>${reader.status || '-'}</td>
+            <td>${reader.active_issues}</td>
+            <td>${reader.overdue_issues}</td>
             <td>${reader.penalty_points}</td>
+            <td>
+                <button class="btn btn-primary" onclick="openReaderCard(${reader.id})">Карточка</button>
+                <button class="btn btn-secondary" onclick="loadReaderToEdit(${reader.id})">Ред.</button>
+                <button class="btn btn-danger" onclick="removeReader(${reader.id})">Удалить</button>
+            </td>
         `;
         tbody.appendChild(tr);
     });
-
-    document.getElementById('reader-results').style.display = 'block';
 }
 
-// Сброс поиска читателей
+async function openReaderCard(readerId) {
+    const response = await fetch(`/api/readers/${readerId}`);
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+        alert(data.error || 'Не удалось загрузить карточку читателя');
+        return;
+    }
+
+    selectedReaderId = readerId;
+    const reader = data.reader;
+    document.getElementById('reader-card-empty').style.display = 'none';
+    document.getElementById('reader-card-content').style.display = 'block';
+    document.getElementById('reader-card-ticket').textContent = `№ билета: ${reader.ticket_number || '-'}`;
+
+    document.getElementById('reader-info-grid').innerHTML = `
+        <div class="reader-info-item"><div class="reader-info-label">ФИО</div><div class="reader-info-value">${reader.last_name} ${reader.first_name} ${reader.patronymic || ''}</div></div>
+        <div class="reader-info-item"><div class="reader-info-label">Контакты</div><div class="reader-info-value">${reader.phone || '-'} / ${reader.email || '-'}</div></div>
+        <div class="reader-info-item"><div class="reader-info-label">Дата регистрации</div><div class="reader-info-value">${reader.registered_at || '-'}</div></div>
+        <div class="reader-info-item"><div class="reader-info-label">Статус</div><div class="reader-info-value">${reader.status || '-'}</div></div>
+        <div class="reader-info-item"><div class="reader-info-label">Активные выдачи</div><div class="reader-info-value">${reader.active_issues}</div></div>
+        <div class="reader-info-item"><div class="reader-info-label">Просрочки</div><div class="reader-info-value">${reader.overdue_issues}</div></div>
+        <div class="reader-info-item"><div class="reader-info-label">Штрафные баллы</div><div class="reader-info-value">${reader.penalty_points}</div></div>
+    `;
+
+    document.getElementById('reader-actions-body').innerHTML = (data.action_history || []).map(item =>
+        `<tr><td>${item.created_at}</td><td>${item.action_type}</td><td>${item.details || '-'}</td></tr>`
+    ).join('') || '<tr><td colspan="3">Нет записей</td></tr>';
+
+    document.getElementById('reader-penalties-body').innerHTML = (data.penalty_history || []).map(item =>
+        `<tr><td>${item.created_at}</td><td>${item.delta_points}</td><td>${item.reason}</td><td>${item.commentary || '-'}</td></tr>`
+    ).join('') || '<tr><td colspan="4">Нет записей</td></tr>';
+
+    showTab('reader-card');
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelector('.tab[onclick*="reader-card"]').classList.add('active');
+}
+
+async function loadReaderToEdit(readerId) {
+    const response = await fetch(`/api/readers/${readerId}`);
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+        alert(data.error || 'Не удалось загрузить данные читателя');
+        return;
+    }
+
+    const r = data.reader;
+    document.getElementById('reader-id').value = r.id;
+    document.getElementById('reader-form-title').textContent = `Редактирование читателя #${r.id}`;
+    document.getElementById('first-name').value = r.first_name || '';
+    document.getElementById('last-name').value = r.last_name || '';
+    document.getElementById('patronymic').value = r.patronymic || '';
+    document.getElementById('birthdate').value = r.date_birth || '';
+    document.getElementById('phone').value = r.phone || '';
+    document.getElementById('email').value = r.email || '';
+    document.getElementById('address').value = r.address || '';
+    document.getElementById('reader-status').value = r.status || 'ACTIVE';
+
+    showTab('add-reader');
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelector('.tab[onclick*="add-reader"]').classList.add('active');
+}
+
+async function removeReader(readerId) {
+    if (!confirm('Удалить карточку читателя?')) return;
+
+    const response = await fetch(`/api/readers/${readerId}`, { method: 'DELETE' });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+        alert(result.error || 'Ошибка удаления');
+        return;
+    }
+
+    if (selectedReaderId === readerId) {
+        selectedReaderId = null;
+        document.getElementById('reader-card-content').style.display = 'none';
+        document.getElementById('reader-card-empty').style.display = 'block';
+    }
+
+    await searchReaders();
+}
+
+async function applyPenaltyChange() {
+    if (!selectedReaderId) {
+        alert('Сначала выберите читателя');
+        return;
+    }
+
+    const payload = {
+        delta_points: Number(document.getElementById('penalty-delta').value),
+        reason: document.getElementById('penalty-reason').value,
+        commentary: document.getElementById('penalty-comment').value.trim()
+    };
+
+    const response = await fetch(`/api/readers/${selectedReaderId}/penalty`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+        alert(result.error || 'Ошибка изменения штрафных баллов');
+        return;
+    }
+
+    document.getElementById('penalty-comment').value = '';
+    await openReaderCard(selectedReaderId);
+    await searchReaders();
+}
+
 function resetReaderSearch() {
     document.getElementById('search-query').value = '';
-    document.getElementById('reader-results').style.display = 'none';
-}
-
-// Редактирование читателя
-function editReader(readerId) {
-    const reader = readers.find(r => r.id === readerId);
-    if (!reader) return;
-
-    // Заполнение формы
-    document.getElementById('full-name').value = reader.fullName;
-    document.getElementById('ticket-number').value = reader.ticketNumber;
-    document.getElementById('phone').value = reader.phone;
-    document.getElementById('email').value = reader.email;
-    document.getElementById('birthdate').value = reader.birthdate;
-    document.getElementById('address').value = reader.address;
-    document.getElementById('notes').value = reader.notes;
-
-    // Переключение на вкладку добавления
-    document.querySelector('.tab[onclick*="add-reader"]').click();
-
-    // Можно добавить флаг редактирования и ID читателя в скрытое поле
+    searchReaders();
 }

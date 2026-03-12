@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS `lading_bill` (
 -- Reader table
 CREATE TABLE IF NOT EXISTS `reader` (
   `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+  `ticket_number` VARCHAR(30) UNIQUE,
   `first_name` VARCHAR(50),
   `last_name` VARCHAR(50),
   `patronymic` VARCHAR(50),
@@ -91,13 +92,15 @@ CREATE TABLE IF NOT EXISTS `reader` (
   `address` VARCHAR(250),
   `email` VARCHAR(250),
   `phone` VARCHAR(50),
+  `registered_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `status` VARCHAR(20) DEFAULT 'ACTIVE',
   `penalty_points` INT DEFAULT 0
 );
 
 -- Given book table
 CREATE TABLE IF NOT EXISTS `given_book` (
   `id` INTEGER PRIMARY KEY AUTOINCREMENT,
-  `quantity` VARCHAR(50),
+  `quantity` INTEGER,
   `given_date` TIMESTAMP,
   `return_date` TIMESTAMP,
   `return_date_fact` TIMESTAMP,
@@ -114,4 +117,27 @@ CREATE TABLE IF NOT EXISTS `system_settings` (
   `standart_rental_period` INTEGER NOT NULL,
   `max_books_per_reader` INTEGER NOT NULL,
   `late_return_penalty` INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS `reader_penalty_history` (
+  `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+  `reader_id` INTEGER NOT NULL,
+  `delta_points` INTEGER NOT NULL,
+  `reason` VARCHAR(30) NOT NULL,
+  `commentary` VARCHAR(250),
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `employee_id` INTEGER,
+  FOREIGN KEY (`reader_id`) REFERENCES `reader` (`id`),
+  FOREIGN KEY (`employee_id`) REFERENCES `employee` (`id`)
+);
+
+CREATE TABLE IF NOT EXISTS `reader_action_history` (
+  `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+  `reader_id` INTEGER NOT NULL,
+  `action_type` VARCHAR(50) NOT NULL,
+  `details` VARCHAR(500),
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `employee_id` INTEGER,
+  FOREIGN KEY (`reader_id`) REFERENCES `reader` (`id`),
+  FOREIGN KEY (`employee_id`) REFERENCES `employee` (`id`)
 );

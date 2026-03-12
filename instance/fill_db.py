@@ -16,6 +16,8 @@ def fill():
 
         # Очищаем таблицы, чтобы повторный запуск fill() не плодил дубли.
         tables_in_delete_order = [
+            'reader_action_history',
+            'reader_penalty_history',
             'lading_bill',
             'order_request',
             'debiting_act',
@@ -79,14 +81,22 @@ def fill():
             books,
         )
 
+        # Даты для тестовых сценариев
+        today = date.today()
+
         # Читатели
         readers = [
+
+            ("RB-0001", "Алексей", "Сидоров", "Алексеевич", "1990-05-15", "г. Москва", "alex@example.com", "71234567890", str(today - timedelta(days=120)), "ACTIVE", 0),
+            ("RB-0002", "Мария", "Кузнецова", "Сергеевна", "1985-08-20", "г. Казань", "maria@example.com", "79876543210", str(today - timedelta(days=80)), "ACTIVE", 5),
+            ("RB-0003", "Илья", "Орлов", "Петрович", "1994-11-02", "г. Самара", "ilya@example.com", "79997774411", str(today - timedelta(days=35)), "BLOCKED", 1),
             ("Алексей", "Сидоров", "Алексеевич", "1990-05-15", "г. Москва", "alex@example.com", "71234567890", 0),
             ("Мария", "Кузнецова", "Сергеевна", "1985-08-20", "г. Казань", "maria@example.com", "79876543210", 5),
             ("Илья", "Орлов", "Петрович", "1994-11-02", "г. Самара", "ilya@example.com", "79997774411", 1),
+
         ]
         cursor.executemany(
-            "INSERT INTO reader (first_name, last_name, patronymic, date_birth, address, email, phone, penalty_points) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO reader (ticket_number, first_name, last_name, patronymic, date_birth, address, email, phone, registered_at, status, penalty_points) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             readers,
         )
 
@@ -106,11 +116,11 @@ def fill():
             (14, 5, 10),
         )
 
-        # Даты для тестовых сценариев отчетов
-        today = date.today()
+# Даты для тестовых сценариев отчетов
+today = date.today()
 
-        # Выданные книги: активные, просроченные и возвращенные
-        given_books = [
+# Выданные книги: активные, просроченные и возвращенные
+given_books = [
             # просрочена
             (1, str(today - timedelta(days=24)), str(today - timedelta(days=10)), None, 1, 1, 1),
             # возвращена вовремя
@@ -156,6 +166,29 @@ def fill():
         cursor.executemany(
             "INSERT INTO debiting_act (date, quantity, commentary, book_id) VALUES (?, ?, ?, ?)",
             debiting_acts,
+        )
+
+        # История штрафных баллов
+        penalty_history = [
+            (2, 3, "overdue", "Просрочка возврата книги", str(today - timedelta(days=9)), 1),
+            (2, 2, "rule_violation", "Нарушение правил пользования", str(today - timedelta(days=3)), 2),
+            (3, 1, "other", "Ручная корректировка", str(today - timedelta(days=2)), 2),
+        ]
+        cursor.executemany(
+            "INSERT INTO reader_penalty_history (reader_id, delta_points, reason, commentary, created_at, employee_id) VALUES (?, ?, ?, ?, ?, ?)",
+            penalty_history,
+        )
+
+        # История действий по читателям
+        reader_actions = [
+            (1, "CREATE", "Создана карточка читателя", str(today - timedelta(days=120)), 1),
+            (2, "CREATE", "Создана карточка читателя", str(today - timedelta(days=80)), 1),
+            (2, "PENALTY_ADD", "Начислено 3 балла (просрочка)", str(today - timedelta(days=9)), 1),
+            (3, "STATUS_CHANGE", "Статус изменен на BLOCKED", str(today - timedelta(days=1)), 2),
+        ]
+        cursor.executemany(
+            "INSERT INTO reader_action_history (reader_id, action_type, details, created_at, employee_id) VALUES (?, ?, ?, ?, ?)",
+            reader_actions,
         )
 
         conn.commit()
