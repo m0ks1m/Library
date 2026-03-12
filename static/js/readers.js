@@ -1,187 +1,147 @@
-document.addEventListener('DOMContentLoaded', function () {
-    // Проверка параметров URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const action = urlParams.get('action');
+let currentReaderId = null;
 
-    if (action === 'search') {
-        document.querySelector('.tab[onclick*="search-reader"]').click();
-    }
-
-    // Маска на телефон (через jQuery Mask Plugin)
-    $(function () {
-        $("#phone").mask("+7 (999) 999-99 99");
-    });
+document.addEventListener('DOMContentLoaded', () => {
+    loadReaders();
 });
 
-// Сохранение читателя
 function saveReader() {
-    const birthdateStr = document.getElementById('birthdate').value;
-    if (!birthdateStr) {
-        alert("Пожалуйста, введите дату рождения");
+    if (!document.getElementById('pd-consent').checked) {
+        alert('Без согласия на обработку ПД регистрация невозможна.');
         return;
     }
 
-    const birthdate = new Date(birthdateStr);
-    const today = new Date();
-
-    if (birthdate > today) {
-        alert("Дата рождения не может быть в будущем");
-        return;
-    }
-
-    const age = today.getFullYear() - birthdate.getFullYear();
-    const monthDiff = today.getMonth() - birthdate.getMonth();
-    const dayDiff = today.getDate() - birthdate.getDate();
-
-    const adjustedAge = (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) ? age - 1 : age;
-
-    if (adjustedAge < 5) {
-        alert("Читателю должно быть не менее 5 лет");
-        return;
-    } else if (adjustedAge > 100) {
-        alert("Вам 100 лет +, идите отдыхайте уже");
-    }
-
-
-    if (!validateForm('add-reader-form')) {
-        alert('Пожалуйста, заполните все обязательные поля');
-        return;
-    }
-
-    // Собираем данные формы
     const formData = {
-        firstName: document.getElementById('first-name').value,
-        lastName: document.getElementById('last-name').value,
-        phone: document.getElementById('phone').value.replace(/\D/g, ''),
-        patronymic: document.getElementById('patronymic').value,
+        firstName: document.getElementById('first-name').value.trim(),
+        lastName: document.getElementById('last-name').value.trim(),
+        patronymic: document.getElementById('patronymic').value.trim(),
         birthdate: document.getElementById('birthdate').value,
-        email: document.getElementById('email').value,
-        address: document.getElementById('address').value
+        phone: document.getElementById('phone').value,
+        email: document.getElementById('email').value.trim(),
+        address: document.getElementById('address').value.trim(),
+        pdConsent: true
     };
 
-    // Отправляем данные на сервер
-    fetch('http://localhost:5000/api/readers', {
+    fetch('/api/readers', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
+        headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(formData)
     })
-    .then(response => {
-        if (!response.ok) {
-            return response.json().then(err => { throw err; });
-        }
-        return response.json();
-    })
-    .then(data => {
-        alert(data.message || 'Читатель успешно зарегистрирован!');
-        resetReaderForm();
-    })
-    .catch(error => {
-        console.error('Ошибка:', error);
-        alert(error.error || 'Произошла ошибка при сохранении читателя');
-    });
+        .then(r => r.json().then(j => ({ok: r.ok, body: j})))
+        .then(({ok, body}) => {
+            if (!ok) throw new Error(body.error || 'Ошибка регистрации');
+            alert(`Читатель добавлен. Билет: ${body.ticketNumber}`);
+            resetReaderForm();
+            showTab('search-reader');
+            loadReaders();
+        })
+        .catch(e => alert(e.message));
 }
 
-// Сброс формы читателя
 function resetReaderForm() {
-    document.getElementById('first-name').value = '';
-    document.getElementById('last-name').value = '';
-    document.getElementById('phone').value = '';
-    document.getElementById('patronymic').value = '';
-    document.getElementById('birthdate').value = '';
-    document.getElementById('email').value = '';
-    document.getElementById('address').value = '';
+    ['first-name', 'last-name', 'patronymic', 'birthdate', 'phone', 'email', 'address'].forEach(id => {
+        document.getElementById(id).value = '';
+    });
+    document.getElementById('pd-consent').checked = false;
 }
 
-// Поиск читателей
-async function searchReaders() {
-    const query = document.getElementById('search-query').value.trim();
-    
-    if (!query) {
-        alert('Пожалуйста, введите поисковый запрос');
-        return;
-    }
-
-    try {
-        // Отправляем запрос к API
-        const response = await fetch(`/api/readers/search?query=${encodeURIComponent(query)}`, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json'
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error(`Ошибка HTTP: ${response.status}`);
-        }
-
-        const data = await response.json();
-        
-        if (data.success) {
-            displayReaderResults(data.readers);
-        } else {
-            alert(data.error || 'Читатели не найдены');
-        }
-    } catch (error) {
-        console.error('Ошибка при поиске читателей:', error);
-        alert('Произошла ошибка при поиске читателей');
-    }
+function searchReaders() {
+    const q = document.getElementById('search-query').value.trim();
+    loadReaders(q);
 }
 
-// Отображение результатов поиска читателей (остается без изменений)
-function displayReaderResults(results) {
-    console.log(results);
+function loadReaders(query = '') {
+    const url = query ? `/api/readers?query=${encodeURIComponent(query)}` : '/api/readers';
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) throw new Error(data.error || 'Ошибка загрузки');
+            renderReaders(data.readers || []);
+        })
+        .catch(e => alert(e.message));
+}
+
+function renderReaders(readers) {
     const tbody = document.getElementById('readers-table-body');
     tbody.innerHTML = '';
 
-    if (results.length === 0) {
-        document.getElementById('reader-results').style.display = 'none';
-        alert('Читатели не найдены');
-        return;
-    }
-
-    results.forEach(reader => {
+    readers.forEach(r => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td>${reader.id}</td>
-            <td>${reader.lastName}</td>
-            <td>${reader.firstName}</td>
-            <td>${reader.patronymic || '-'}</td>
-            <td>${reader.birthdate}</td>
-            <td>${reader.phone}</td>
-            <td>${reader.adress}</td>
-            <td>${reader.email}</td>
-            <td>${reader.penalty_points}</td>
+            <td>${r.id}</td>
+            <td>${r.ticket_number || '-'}</td>
+            <td>${r.last_name} ${r.first_name} ${r.patronymic || ''}</td>
+            <td>${r.phone || '-'}</td>
+            <td>${r.email || '-'}</td>
+            <td>${r.status || '-'}</td>
+            <td>${r.active_issues || 0}</td>
+            <td>${r.overdue_count || 0}</td>
+            <td>${r.penalty_points || 0}</td>
+            <td>${r.pd_consent ? 'Да' : 'Нет'}</td>
+            <td>
+                <button class="btn btn-primary" onclick="openReaderCard(${r.id})">Карточка</button>
+                <button class="btn btn-danger" onclick="removeReader(${r.id})">Удалить</button>
+            </td>
         `;
         tbody.appendChild(tr);
     });
-
-    document.getElementById('reader-results').style.display = 'block';
 }
 
-// Сброс поиска читателей
-function resetReaderSearch() {
-    document.getElementById('search-query').value = '';
-    document.getElementById('reader-results').style.display = 'none';
+function openReaderCard(readerId) {
+    currentReaderId = readerId;
+    fetch(`/api/readers/${readerId}/card`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) throw new Error(data.error || 'Не удалось загрузить карточку');
+            const reader = data.reader;
+            const historyRows = (data.history || []).map(h => `<li>${h.created_at}: <b>${h.action_type}</b> — ${h.comment || ''}</li>`).join('');
+            const penaltyRows = (data.penalties || []).map(p => `<li>${p.created_at}: ${p.delta_points > 0 ? '+' : ''}${p.delta_points} (${p.reason}) ${p.comment || ''}</li>`).join('');
+            document.getElementById('reader-card-content').innerHTML = `
+                <p><b>ФИО:</b> ${reader.last_name} ${reader.first_name} ${reader.patronymic || ''}</p>
+                <p><b>Билет:</b> ${reader.ticket_number || '-'}</p>
+                <p><b>Контакты:</b> ${reader.phone || '-'}, ${reader.email || '-'}</p>
+                <p><b>Дата регистрации:</b> ${reader.registered_at || '-'}</p>
+                <p><b>Статус:</b> ${reader.status || '-'}</p>
+                <p><b>Активные выдачи:</b> ${reader.active_issues || 0}</p>
+                <p><b>Просрочки:</b> ${reader.overdue_count || 0}</p>
+                <p><b>Штрафные баллы:</b> ${reader.penalty_points || 0}</p>
+                <p><b>Согласие на ПД:</b> ${reader.pd_consent ? 'Да' : 'Нет'} (${reader.pd_consent_at || '-'})</p>
+                <h4>История действий</h4>
+                <ul>${historyRows || '<li>Нет записей</li>'}</ul>
+                <h4>История штрафов</h4>
+                <ul>${penaltyRows || '<li>Нет записей</li>'}</ul>
+            `;
+            showModal('reader-card-modal');
+        })
+        .catch(e => alert(e.message));
 }
 
-// Редактирование читателя
-function editReader(readerId) {
-    const reader = readers.find(r => r.id === readerId);
-    if (!reader) return;
+function applyPenalty() {
+    if (!currentReaderId) return;
+    const delta = Number(document.getElementById('penalty-delta').value || 0);
+    const reason = document.getElementById('penalty-reason').value;
+    const comment = document.getElementById('penalty-comment').value;
 
-    // Заполнение формы
-    document.getElementById('full-name').value = reader.fullName;
-    document.getElementById('ticket-number').value = reader.ticketNumber;
-    document.getElementById('phone').value = reader.phone;
-    document.getElementById('email').value = reader.email;
-    document.getElementById('birthdate').value = reader.birthdate;
-    document.getElementById('address').value = reader.address;
-    document.getElementById('notes').value = reader.notes;
+    fetch(`/api/readers/${currentReaderId}/penalties`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({delta_points: delta, reason, comment})
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) throw new Error(data.error || 'Ошибка');
+            openReaderCard(currentReaderId);
+            loadReaders();
+        })
+        .catch(e => alert(e.message));
+}
 
-    // Переключение на вкладку добавления
-    document.querySelector('.tab[onclick*="add-reader"]').click();
-
-    // Можно добавить флаг редактирования и ID читателя в скрытое поле
+function removeReader(readerId) {
+    if (!confirm('Деактивировать карточку читателя?')) return;
+    fetch(`/api/readers/${readerId}`, {method: 'DELETE'})
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) throw new Error(data.error || 'Ошибка удаления');
+            loadReaders();
+        })
+        .catch(e => alert(e.message));
 }
