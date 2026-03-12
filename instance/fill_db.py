@@ -86,9 +86,14 @@ def fill():
 
         # Читатели
         readers = [
+
             ("RB-0001", "Алексей", "Сидоров", "Алексеевич", "1990-05-15", "г. Москва", "alex@example.com", "71234567890", str(today - timedelta(days=120)), "ACTIVE", 0),
             ("RB-0002", "Мария", "Кузнецова", "Сергеевна", "1985-08-20", "г. Казань", "maria@example.com", "79876543210", str(today - timedelta(days=80)), "ACTIVE", 5),
             ("RB-0003", "Илья", "Орлов", "Петрович", "1994-11-02", "г. Самара", "ilya@example.com", "79997774411", str(today - timedelta(days=35)), "BLOCKED", 1),
+            ("Алексей", "Сидоров", "Алексеевич", "1990-05-15", "г. Москва", "alex@example.com", "71234567890", 0),
+            ("Мария", "Кузнецова", "Сергеевна", "1985-08-20", "г. Казань", "maria@example.com", "79876543210", 5),
+            ("Илья", "Орлов", "Петрович", "1994-11-02", "г. Самара", "ilya@example.com", "79997774411", 1),
+
         ]
         cursor.executemany(
             "INSERT INTO reader (ticket_number, first_name, last_name, patronymic, date_birth, address, email, phone, registered_at, status, penalty_points) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -111,8 +116,11 @@ def fill():
             (14, 5, 10),
         )
 
-        # Выданные книги: активные, просроченные и возвращенные
-        given_books = [
+# Даты для тестовых сценариев отчетов
+today = date.today()
+
+# Выданные книги: активные, просроченные и возвращенные
+given_books = [
             # просрочена
             (1, str(today - timedelta(days=24)), str(today - timedelta(days=10)), None, 1, 1, 1),
             # возвращена вовремя
