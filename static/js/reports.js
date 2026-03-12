@@ -1,135 +1,140 @@
-// reports.js - Логика для страницы отчетов
-
-// Объект с заголовками отчетов
 const reportTitles = {
-    'all-books': 'Список всех книг',
-    'by-genre': 'Список книг по жанрам',
-    'by-author': 'Список книг по авторам',
-    'issued-books': 'Список книг на руках у читателей',
-    'write-off': 'Список книг, требующих списания',
-    'new-arrivals': 'Отчет о новых поступлениях за период',
-    'issue-return': 'Отчет о выданных и возвращенных книгах за период'
+    'issued-books': 'Отчет по выданным книгам',
+    'overdue-books': 'Отчет по просрочкам',
+    'readers': 'Отчет по читателям',
+    'book-popularity': 'Отчет по популярности книг',
+    'penalty-points': 'Отчет по штрафным баллам',
+    'write-off': 'Отчет по списанным книгам',
+    'new-arrivals': 'Отчет по поступлениям книг'
 };
 
-// Инициализация при загрузке страницы
-document.addEventListener('DOMContentLoaded', function() {
-    // Установка дат по умолчанию (текущий месяц)
+let currentReportRequest = null;
+
+document.addEventListener('DOMContentLoaded', function () {
     const today = new Date();
     const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
     const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
 
     document.getElementById('start-date').valueAsDate = firstDay;
     document.getElementById('end-date').valueAsDate = lastDay;
+    document.getElementById('period-fields').style.display = 'flex';
 
-    // Обработка изменения типа отчета
-    document.getElementById('report-type').addEventListener('change', function() {
-        const reportType = this.value;
-        const periodFields = document.getElementById('period-fields');
-
-        // Показываем поля периода только для определенных отчетов
-        if (reportType === 'new-arrivals' || reportType === 'issue-return') {
-            periodFields.style.display = 'flex';
-        } else {
-            periodFields.style.display = 'none';
-        }
-        // Скрываем результаты и опции экспорта при смене типа отчета
-        document.getElementById('report-results').style.display = 'none';
-        document.getElementById('export-options').style.display = 'none';
-        document.getElementById('charts-container').style.display = 'none';
-    });
+    document.getElementById('report-type').addEventListener('change', clearPreview);
 });
 
-// Генерация отчета
-async function generateReport() {
-    const reportType = document.getElementById('report-type').value;
-    const startDate = document.getElementById('start-date').value;
-    const endDate = document.getElementById('end-date').value;
+function buildRequestPayload() {
+    return {
+        report_type: document.getElementById('report-type').value,
+        start_date: document.getElementById('start-date').value,
+        end_date: document.getElementById('end-date').value
+    };
+}
 
-    if (!reportType) {
+async function generateReport() {
+    const payload = buildRequestPayload();
+
+    if (!payload.report_type) {
         alert('Выберите тип отчета');
         return;
     }
 
-    // Проверка периода для отчетов, требующих даты
-    if ((reportType === 'new-arrivals' || reportType === 'issue-return') && (!startDate || !endDate)) {
-        alert('Укажите период для отчета');
-        return;
-    }
-
-    if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+    if (payload.start_date && payload.end_date && new Date(payload.start_date) > new Date(payload.end_date)) {
         alert('Дата начала не может быть позже даты окончания');
         return;
     }
 
     try {
-        const response = await fetch('/api/reports/generate', {
+        const response = await fetch('/api/reports/preview', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                report_type: reportType,
-                start_date: startDate,
-                end_date: endDate
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
-
         const result = await response.json();
 
-        if (response.ok) {
-            if (result.success && result.report_url && result.report_pdf_url) {
-                // Показываем кнопку скачивания
-                const downloadButton = document.getElementById('download-report-btn');
-                downloadButton.href = result.report_url;
-                downloadButton.style.display = 'inline-block';
-                const downloadButtonPDF = document.getElementById('download-report-pdf-btn');
-                downloadButtonPDF.href = result.report_pdf_url;
-                downloadButtonPDF.style.display = 'inline-block';
-                document.getElementById('export-options').style.display = 'flex';
-                document.getElementById('report-results').style.display = 'block';
-                document.getElementById('report-title').textContent = `Отчет "${reportTitles[reportType]}" готов`;
-                document.getElementById('report-content').innerHTML = '<p>Нажмите кнопку "Скачать отчет" для загрузки файла.</p>';
-            } else {
-                alert('Ошибка при генерации отчета: ' + (result.error || 'Неизвестная ошибка'));
-            }
-        } else {
-            alert('Ошибка сервера: ' + (result.error || response.statusText));
+        if (!response.ok || !result.success) {
+            alert('Ошибка при формировании предпросмотра: ' + (result.error || response.statusText));
+            return;
         }
+
+        currentReportRequest = payload;
+        renderReportPreview(result.report);
+        setupExportButton();
     } catch (error) {
-        console.error('Ошибка:', error);
-        alert('Произошла ошибка при отправке запроса.');
+        console.error(error);
+        alert('Произошла ошибка при запросе предпросмотра отчета');
     }
 }
 
-// Экспорт отчета (теперь только печать)
-function exportReport(format) {
-    if (format === 'print') {
-        printReport();
-    } else {
-        // Для docx теперь используется прямая ссылка на скачивание
-        // Эта функция может быть переименована или удалена, если не будет других форматов
-        alert('Для скачивания отчета используйте кнопку "Скачать отчет".');
-    }
+function renderReportPreview(report) {
+    const reportContainer = document.getElementById('report-results');
+    const reportTitle = document.getElementById('report-title');
+    const reportContent = document.getElementById('report-content');
+
+    reportTitle.textContent = report.title || reportTitles[report.report_type] || 'Предпросмотр отчета';
+
+    const kpiHtml = (report.kpi || []).map(item => `
+        <div class="kpi-card">
+            <div class="kpi-value">${item.value}</div>
+            <div class="kpi-label">${item.label}</div>
+        </div>
+    `).join('');
+
+    const headers = (report.columns || []).map(col => `<th>${col}</th>`).join('');
+    const rows = (report.rows || []).map(row => `<tr>${row.map(cell => `<td>${cell ?? ''}</td>`).join('')}</tr>`).join('');
+
+    reportContent.innerHTML = `
+        <div class="report-meta">
+            <span><strong>Тип:</strong> ${reportTitle.textContent}</span>
+            ${report.period?.start && report.period?.end ? `<span><strong>Период:</strong> ${report.period.start} — ${report.period.end}</span>` : ''}
+            <span><strong>Найдено записей:</strong> ${report.totals?.records || 0}</span>
+        </div>
+        <div class="kpi-grid">${kpiHtml}</div>
+        <div class="table-wrap">
+            <table class="report-table">
+                <thead><tr>${headers}</tr></thead>
+                <tbody>${rows || `<tr><td colspan="${report.columns.length}">Нет данных по выбранным фильтрам</td></tr>`}</tbody>
+            </table>
+        </div>
+    `;
+
+    reportContainer.style.display = 'block';
 }
 
-// Печать отчета
-function printReport() {
-    window.print();
+function setupExportButton() {
+    const exportOptions = document.getElementById('export-options');
+    const downloadButton = document.getElementById('download-report-btn');
+
+    downloadButton.style.display = 'inline-flex';
+    exportOptions.style.display = 'flex';
+
+    downloadButton.onclick = async function (event) {
+        event.preventDefault();
+        if (!currentReportRequest) return;
+
+        const response = await fetch('/api/reports/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(currentReportRequest)
+        });
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+            alert('Ошибка выгрузки отчета: ' + (result.error || response.statusText));
+            return;
+        }
+
+        window.location.href = result.report_url;
+    };
 }
 
-// Сброс формы отчета
-function resetReportForm() {
-    document.getElementById('report-type').value = '';
-    document.getElementById('period-fields').style.display = 'none';
+function clearPreview() {
     document.getElementById('report-results').style.display = 'none';
     document.getElementById('export-options').style.display = 'none';
-    document.getElementById('charts-container').style.display = 'none';
-    // Скрываем кнопку скачивания при сбросе
-    document.getElementById('download-report-btn').style.display = 'none';
 }
 
-// Удаляем mock-данные и функции отображения таблиц/графиков, так как они больше не нужны
-// const reportColumns = {...}; // Удалено
-// function displayReportResults(...) // Удалено
-// function renderCharts(...) // Удалено
-// function getMockReportData(...) // Удалено
+function resetReportForm() {
+    document.getElementById('report-type').value = '';
+    document.getElementById('report-results').style.display = 'none';
+    document.getElementById('export-options').style.display = 'none';
+    currentReportRequest = null;
+}
