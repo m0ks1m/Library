@@ -6,7 +6,7 @@ import os
 from typing import List, Dict, Optional, Union
 from docx2pdf import convert as docx_to_pdf
 
-DB_PATH = r"instance\sqlite.db"
+from config import DB_PATH
 
 def generate_universal_report(
     template_path: str,

@@ -10,123 +10,62 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/reports.css') }}">
 </head>
 <body>
-    <div class="container">
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <h2>
-                    <i class="fas fa-graduation-cap"></i>
-                    <span>Твердый переплет</span>
-                </h2>
-            </div>
-            <nav class="sidebar-nav">
-                <ul>
-                    <li><a href="{{ url_for('index') }}"><i class="fas fa-tachometer-alt"></i>Главная</a></li>
+<div class="container">
+    <aside class="sidebar">
+        <div class="sidebar-header"><h2><i class="fas fa-graduation-cap"></i><span>Твердый переплет</span></h2></div>
+        <nav class="sidebar-nav"><ul>
+            <li><a href="{{ url_for('index') }}"><i class="fas fa-tachometer-alt"></i>Главная</a></li>
+            <li><a href="{{ url_for('books_page') }}"><i class="fas fa-book"></i>Каталог книг</a></li>
+            <li><a href="{{ url_for('readers_page') }}"><i class="fas fa-users"></i>Читатели</a></li>
+            <li><a href="{{ url_for('transactions_page') }}"><i class="fas fa-exchange-alt"></i>Выдачи/возвраты</a></li>
+            <li><a href="{{ url_for('supplies_page') }}"><i class="fas fa-truck"></i>Поставки</a></li>
+            <li><a href="{{ url_for('reports_page') }}" class="active"><i class="fas fa-chart-bar"></i>Отчеты</a></li>
+            {% if current_user.role == 'Администратор' %}<li><a href="{{ url_for('settings_page') }}"><i class="fas fa-cog"></i>Настройки</a></li>{% endif %}
+        </ul></nav>
+    </aside>
 
-                    {% if current_user.role in ['Администратор', 'Библиотекарь'] %}
-                    <li><a href="{{ url_for('books_page') }}"><i class="fas fa-book"></i>Каталог книг</a></li>
-                    <li><a href="{{ url_for('readers_page') }}"><i class="fas fa-users"></i>Читатели</a></li>
-                    <li><a href="{{ url_for('transactions_page') }}"><i class="fas fa-exchange-alt"></i>Выдачи/возвраты</a></li>
-                    {% endif %}
+    <main class="main-content">
+        <header class="header">
+            <h1>Отчеты и аналитика</h1>
+            <a href="{{ url_for('logout') }}" class="logout-btn" title="Выйти"><i class="fas fa-sign-out-alt"></i></a>
+        </header>
 
-                    {% if current_user.role == 'Бухгалтер' or current_user.role == 'Администратор' %}
-                    <li><a href="{{ url_for('reports_page') }}" class="active"><i class="fas fa-chart-bar"></i>Отчеты</a></li>
-                    {% endif %}
-
-                    {% if current_user.role == 'Администратор' %}
-                    <li><a href="{{ url_for('settings_page') }}"><i class="fas fa-cog"></i>Настройки</a></li>
-                    {% endif %}
-                </ul>
-            </nav>
-        </aside>
-
-        <main class="main-content">
-            <header class="header">
-                <h1>Отчеты</h1>
-                <div class="user-menu">
-                    <div class="user-info">
-                        <strong>{{ current_user.first_name }} {{ current_user.last_name }}</strong><br>
-                        <span class="user-role">{{ current_user.role }}</span>
-                    </div>
-                    <div class="user-avatar">
-                        {{ current_user.first_name[0] }}{{ current_user.last_name[0] }}
-                    </div>
-                    <a href="{{ url_for('logout') }}" class="logout-btn" title="Выйти">
-                        <i class="fas fa-sign-out-alt"></i>
-                    </a>
-                </div>
-            </header>
-
-            <div class="form-container">
-                <h2 class="form-title">Формирование отчета</h2>
-
+        <div class="form-container">
+            <h2 class="form-title">Параметры отчета</h2>
+            <div class="form-row">
                 <div class="form-group">
                     <label for="report-type">Тип отчета*</label>
                     <select id="report-type" class="form-control" required>
                         <option value="">Выберите тип отчета</option>
-                        <option value="all-books">Список всех книг</option>
-                        <option value="by-genre">Список книг по жанрам</option>
-                        <option value="by-author">Список книг по авторам</option>
-                        <option value="issued-books">Список книг на руках у читателей</option>
-                        <option value="write-off">Список книг, требующих списания</option>
-                        <option value="new-arrivals">Отчет о новых поступлениях за период</option>
-                        <option value="issue-return">Отчет о выданных и возвращенных книгах за период</option>
+                        <option value="issued-books">По выданным книгам</option>
+                        <option value="overdue">По просрочкам</option>
+                        <option value="readers">По читателям</option>
+                        <option value="book-popularity">По популярности книг</option>
+                        <option value="penalties">По штрафным баллам</option>
+                        <option value="write-off">По списанным книгам</option>
+                        <option value="arrivals">По поступлениям книг</option>
                     </select>
                 </div>
-
-                <div class="form-row" id="period-fields" style="display: none;">
-                    <div class="form-group">
-                        <label for="start-date">Дата начала*</label>
-                        <input type="date" id="start-date" class="form-control">
-                    </div>
-                    <div class="form-group">
-                        <label for="end-date">Дата окончания*</label>
-                        <input type="date" id="end-date" class="form-control">
-                    </div>
-                </div>
-
-                <div class="btn-group">
-                    <button class="btn btn-secondary" onclick="resetReportForm()">Сбросить</button>
-                    <button class="btn btn-primary" onclick="generateReport()">Сформировать отчет</button>
-                </div>
-
-                <div class="export-options" id="export-options" style="display: none;">
-                    <a href="#" id="download-report-btn" class="export-btn" style="display: none;" download>
-                        <i class="fas fa-file-word"></i> Скачать отчет (DOCX)
-                    </a>
-                    <a href="#" id="download-report-pdf-btn" class="export-btn export-btn-pdf" style="display: none;" download>
-                        <i class="fas fa-file-pdf"></i> Скачать отчет (PDF)
-                    </a>
-                    <!-- <button class="export-btn" onclick="exportReport('print')">
-                        <i class="fas fa-print"></i> Печать
-                    </button> -->
-                </div>
             </div>
-
-            <div class="report-results" id="report-results" style="display: none;">
-                <h3 id="report-title">Отчет</h3>
-                <div id="report-content">
-                    <!-- Содержимое отчета будет загружено динамически -->
-                </div>
+            <div class="form-row" id="period-fields">
+                <div class="form-group"><label for="start-date">Дата начала</label><input type="date" id="start-date" class="form-control"></div>
+                <div class="form-group"><label for="end-date">Дата окончания</label><input type="date" id="end-date" class="form-control"></div>
             </div>
-
-            <!-- Графики (для некоторых отчетов) - теперь не используются -->
-            <div class="charts-container" id="charts-container" style="display: none;">
-                <!-- <h3>Визуализация данных</h3>
-                <div class="chart-row">
-                    <div class="chart-container">
-                        <canvas id="chart1"></canvas>
-                    </div>
-                    <div class="chart-container">
-                        <canvas id="chart2"></canvas>
-                    </div>
-                </div> -->
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="generateReport()">Предпросмотр</button>
+                <button class="btn btn-secondary" onclick="exportReport()">Выгрузить CSV</button>
+                <button class="btn btn-secondary" onclick="resetReportForm()">Сбросить</button>
             </div>
-        </main>
-    </div>
+        </div>
 
-    <!-- Подключаем Chart.js для графиков - теперь не используется -->
-    <!-- <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> -->
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/reports.js') }}"></script>
+        <div class="report-results" id="report-results" style="display:none;">
+            <h3 id="report-title">Предпросмотр отчета</h3>
+            <div id="kpi-block"></div>
+            <div id="report-content"></div>
+        </div>
+    </main>
+</div>
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script src="{{ url_for('static', filename='js/reports.js') }}"></script>
 </body>
 </html>
