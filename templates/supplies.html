@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Поставки | Твердый переплет</title>
+  <link rel="icon" href="../static/img/icon.png" type="image/x-icon">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <link rel="stylesheet" href="../static/css/styles.css">
+  <link rel="stylesheet" href="../static/css/style.css">
+</head>
+<body>
+<div class="container">
+  <aside class="sidebar">
+    <div class="sidebar-header"><h2><i class="fas fa-graduation-cap"></i><span>Твердый переплет</span></h2></div>
+    <nav class="sidebar-nav"><ul>
+      <li><a href="/"><i class="fas fa-tachometer-alt"></i>Главная</a></li>
+      <li><a href="/books"><i class="fas fa-book"></i>Каталог книг</a></li>
+      <li><a href="/readers"><i class="fas fa-users"></i>Читатели</a></li>
+      <li><a href="/transactions"><i class="fas fa-exchange-alt"></i>Выдачи/возвраты</a></li>
+      <li><a href="/supplies" class="active"><i class="fas fa-truck"></i>Поставки</a></li>
+      <li><a href="/reports"><i class="fas fa-chart-bar"></i>Отчеты</a></li>
+    </ul></nav>
+  </aside>
+  <main class="main-content">
+    <header class="header"><h1>Поставщики и поставки</h1><a href="{{ url_for('logout') }}" class="logout-btn"><i class="fas fa-sign-out-alt"></i></a></header>
+
+    <div class="tabs">
+      <div class="tab active" onclick="showTab('suppliers-tab')">Поставщики</div>
+      <div class="tab" onclick="showTab('contracts-tab')">Договоры</div>
+      <div class="tab" onclick="showTab('acceptance-tab')">Акты приёма</div>
+      <div class="tab" onclick="showTab('writeoff-tab')">Акты списания</div>
+    </div>
+
+    <div id="suppliers-tab" class="tab-content" style="display:block">
+      <div class="form-container">
+        <h2 class="form-title">Новый поставщик</h2>
+        <div class="form-row">
+          <div class="form-group"><input id="supplier-name" class="form-control" placeholder="Название"></div>
+          <div class="form-group"><input id="supplier-contact" class="form-control" placeholder="Контактное лицо"></div>
+          <div class="form-group"><input id="supplier-phone" class="form-control" placeholder="Телефон"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><input id="supplier-email" class="form-control" placeholder="Email"></div>
+          <div class="form-group"><input id="supplier-address" class="form-control" placeholder="Адрес"></div>
+          <div class="form-group"><input id="supplier-comment" class="form-control" placeholder="Комментарий"></div>
+        </div>
+        <button class="btn btn-primary" onclick="createSupplier()">Добавить</button>
+        <div id="suppliers-list" style="margin-top:15px"></div>
+      </div>
+    </div>
+
+    <div id="contracts-tab" class="tab-content" style="display:none">
+      <div class="form-container">
+        <h2 class="form-title">Новый договор</h2>
+        <div class="form-row">
+          <div class="form-group"><input id="contract-number" class="form-control" placeholder="Номер договора"></div>
+          <div class="form-group"><input id="contract-signed" type="date" class="form-control"></div>
+          <div class="form-group"><input id="contract-supplier-id" class="form-control" placeholder="ID поставщика"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><input id="contract-start" type="date" class="form-control"></div>
+          <div class="form-group"><input id="contract-end" type="date" class="form-control"></div>
+          <div class="form-group"><input id="contract-terms" class="form-control" placeholder="Условия"></div>
+        </div>
+        <button class="btn btn-primary" onclick="createContract()">Добавить</button>
+        <div id="contracts-list" style="margin-top:15px"></div>
+      </div>
+    </div>
+
+    <div id="acceptance-tab" class="tab-content" style="display:none">
+      <div class="form-container">
+        <h2 class="form-title">Акт приёма</h2>
+        <div class="form-row">
+          <div class="form-group"><input id="acc-number" class="form-control" placeholder="Номер акта"></div>
+          <div class="form-group"><input id="acc-date" type="date" class="form-control"></div>
+          <div class="form-group"><input id="acc-supplier-id" class="form-control" placeholder="ID поставщика"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><input id="acc-contract-id" class="form-control" placeholder="ID договора"></div>
+          <div class="form-group"><input id="acc-book-id" class="form-control" placeholder="ID книги"></div>
+          <div class="form-group"><input id="acc-qty" type="number" class="form-control" placeholder="Кол-во"></div>
+        </div>
+        <button class="btn btn-primary" onclick="createAcceptanceAct()">Подтвердить акт</button>
+        <div id="acceptance-list" style="margin-top:15px"></div>
+      </div>
+    </div>
+
+    <div id="writeoff-tab" class="tab-content" style="display:none">
+      <div class="form-container">
+        <h2 class="form-title">Акт списания</h2>
+        <div class="form-row">
+          <div class="form-group"><input id="wo-number" class="form-control" placeholder="Номер акта"></div>
+          <div class="form-group"><input id="wo-date" type="date" class="form-control"></div>
+          <div class="form-group"><input id="wo-copy-id" class="form-control" placeholder="ID экземпляра"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><select id="wo-reason" class="form-control"><option>износ</option><option>утеря</option><option>повреждение</option><option>устаревание</option><option>другое</option></select></div>
+          <div class="form-group"><input id="wo-basis" class="form-control" placeholder="Основание"></div>
+          <div class="form-group"><input id="wo-comment" class="form-control" placeholder="Комментарий"></div>
+        </div>
+        <button class="btn btn-danger" onclick="createWriteoffAct()">Подтвердить списание</button>
+        <div id="writeoff-list" style="margin-top:15px"></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+<script src="../static/js/main.js"></script>
+<script src="../static/js/supplies.js"></script>
+</body>
+</html>

@@ -40,7 +40,7 @@ function hideModal(modalId) {
 }
 
 // Переключение между табами
-function showTab(tabId) {
+function showTab(tabId, evt) {
     document.querySelectorAll('.tab-content').forEach(tab => {
         tab.style.display = 'none';
     });
@@ -49,7 +49,8 @@ function showTab(tabId) {
     });
 
     document.getElementById(tabId).style.display = 'block';
-    event.currentTarget.classList.add('active');
+    const trigger = evt?.currentTarget || window.event?.currentTarget;
+    if (trigger) trigger.classList.add('active');
 }
 
 // Форматирование даты

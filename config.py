@@ -1,1 +1,1 @@
-DB_PATH="instance\sqlite.db"
+DB_PATH = "instance/sqlite.db"
