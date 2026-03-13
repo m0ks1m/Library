@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS `book` (
   `author_id` INTEGER NOT NULL,
   `genre_id` INTEGER NOT NULL,
   `publishing_house` VARCHAR(100),
+  `description` TEXT,
   FOREIGN KEY (`author_id`) REFERENCES `author` (`id`),
   FOREIGN KEY (`genre_id`) REFERENCES `genre` (`id`)
 );
@@ -106,6 +107,7 @@ CREATE TABLE IF NOT EXISTS `reader` (
   `phone` VARCHAR(50),
   `registered_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `status` VARCHAR(20) DEFAULT 'ACTIVE',
+  `pdn_consent` INTEGER DEFAULT 1,
   `penalty_points` INT DEFAULT 0
 );
 
@@ -119,9 +121,14 @@ CREATE TABLE IF NOT EXISTS `given_book` (
   `reader_id` INTEGER NOT NULL,
   `employee_id` INTEGER NOT NULL,
   `book_id` INTEGER NOT NULL,
+  `book_copy_id` INTEGER,
+  `return_status` VARCHAR(20),
+  `return_comment` VARCHAR(250),
+  `overdue_days` INTEGER DEFAULT 0,
   FOREIGN KEY (`reader_id`) REFERENCES `reader` (`id`),
   FOREIGN KEY (`employee_id`) REFERENCES `employee` (`id`),
-  FOREIGN KEY (`book_id`) REFERENCES `book` (`id`)
+  FOREIGN KEY (`book_id`) REFERENCES `book` (`id`),
+  FOREIGN KEY (`book_copy_id`) REFERENCES `book_copy` (`id`)
 );
 
 CREATE TABLE IF NOT EXISTS `system_settings` (

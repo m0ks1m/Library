@@ -430,53 +430,64 @@ def api_login():
 
 @app.route('/api/metrics')
 def get_metrics():
+    ensure_supply_schema()
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     try:
-        # 1. Книг в наличии (сумма quantity из таблицы book)
-        cursor.execute('SELECT SUM(quantity) FROM book')
-        available_books = cursor.fetchone()[0] or 0
-        
-        # 2. Книг на руках у читателей (сумма quantity из given_book где не возвращено)
-        cursor.execute('''
-            SELECT SUM(quantity) 
-            FROM given_book 
-            WHERE return_date_fact IS NULL
-        ''')
-        borrowed_books = cursor.fetchone()[0] or 0
-        
-        # 3. Всего книг в фонде (книги в наличии + выданные)
-        total_books = available_books + borrowed_books
-        
-        # # 4. Требуют списания (книги с quantity <= 0)
-        # cursor.execute('SELECT COUNT(*) FROM book WHERE quantity <= 0')
-        # to_write_off = cursor.fetchone()[0] or 0
-        
-        # # 5. Новые поступления (за последние 30 дней)
-        # cursor.execute('''
-        #     SELECT COUNT(*) 
-        #     FROM lading_bill 
-        #     WHERE date >= date('now', '-30 days')
-        # ''')
-        # new_arrivals = cursor.fetchone()[0] or 0
-        
+        sync_overdue_copy_statuses(cursor)
+        conn.commit()
+
+        cursor.execute('SELECT COUNT(*) FROM book')
+        book_cards_total = cursor.fetchone()[0] or 0
+
+        cursor.execute('SELECT COUNT(*) FROM book_copy')
+        copies_total = cursor.fetchone()[0] or 0
+
+        def count_by_status(status):
+            cursor.execute('SELECT COUNT(*) FROM book_copy WHERE status = ?', (status,))
+            return cursor.fetchone()[0] or 0
+
+        available_copies = count_by_status('available')
+        issued_copies = count_by_status('issued')
+        overdue_copies = count_by_status('overdue')
+        damaged_copies = count_by_status('damaged')
+        lost_copies = count_by_status('lost')
+        written_off_copies = count_by_status('written_off')
+
+        cursor.execute('SELECT COUNT(*) FROM reader')
+        readers_total = cursor.fetchone()[0] or 0
+        cursor.execute("SELECT COUNT(*) FROM reader WHERE date(registered_at) >= date('now', '-30 days')")
+        new_readers_30d = cursor.fetchone()[0] or 0
+        cursor.execute("SELECT COUNT(DISTINCT reader_id) FROM given_book WHERE return_date_fact IS NULL")
+        readers_with_active = cursor.fetchone()[0] or 0
+        cursor.execute("SELECT COUNT(DISTINCT reader_id) FROM given_book WHERE return_date_fact IS NULL AND date(return_date) < date('now')")
+        readers_with_overdue = cursor.fetchone()[0] or 0
+
         metrics = [
-            {"title": "Всего книг в фонде", "value": f"{total_books:,}", "class": "primary"},
-            {"title": "Книг в наличии", "value": f"{available_books:,}", "class": "success"},
-            {"title": "На руках у читателей", "value": f"{borrowed_books:,}", "class": "info"},
-            # {"title": "Требуют списания", "value": f"{to_write_off:,}", "class": "warning"},
-            # {"title": "Новые поступления", "value": f"{new_arrivals:,}", "class": "danger"}
+            {"title": "Карточек книг", "value": f"{book_cards_total:,}", "class": "primary"},
+            {"title": "Экземпляров всего", "value": f"{copies_total:,}", "class": "primary"},
+            {"title": "Доступных", "value": f"{available_copies:,}", "class": "success"},
+            {"title": "Выданных", "value": f"{issued_copies:,}", "class": "info"},
+            {"title": "Просроченных", "value": f"{overdue_copies:,}", "class": "warning"},
+            {"title": "Поврежденных", "value": f"{damaged_copies:,}", "class": "warning"},
+            {"title": "Утерянных", "value": f"{lost_copies:,}", "class": "danger"},
+            {"title": "Списанных", "value": f"{written_off_copies:,}", "class": "danger"},
+            {"title": "Читателей всего", "value": f"{readers_total:,}", "class": "primary"},
+            {"title": "Новых за 30 дней", "value": f"{new_readers_30d:,}", "class": "success"},
+            {"title": "Читатели с активными выдачами", "value": f"{readers_with_active:,}", "class": "info"},
+            {"title": "Читатели с просрочками", "value": f"{readers_with_overdue:,}", "class": "warning"},
         ]
-        
+
         return jsonify(metrics)
-        
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-        
+
     finally:
         conn.close()
-        
+
+
 @app.route('/api/readers', methods=['GET'])
 @login_required
 def list_readers():
@@ -596,6 +607,8 @@ def get_reader_details(reader_id):
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+        sync_overdue_copy_statuses(cursor)
+        conn.commit()
 
         cursor.execute("""
             SELECT
@@ -1335,43 +1348,65 @@ def add_book():
 # Получение информации о книге по ISBN или ID
 @app.route('/api/book/by-identifier', methods=['GET'])
 def get_book_by_identifier():
+    ensure_supply_schema()
     try:
         identifier = request.args.get('identifier')
         if not identifier:
             return jsonify({"error": "Не указан идентификатор"}), 400
-        
+
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT b.id, b.name, b.year, b.isbn, b.quantity, 
+        sync_overdue_copy_statuses(cursor)
+        conn.commit()
+
+        cursor.execute(
+            """
+            SELECT b.id, b.name, b.year, b.isbn, b.quantity,
                    a.first_name, a.last_name, a.patronymic,
-                   g.name as genre, b.publishing_house
+                   g.name as genre, b.publishing_house, b.description
             FROM book b
             JOIN author a ON b.author_id = a.id
             JOIN genre g ON b.genre_id = g.id
             WHERE b.isbn = ? OR b.id = ?
-        ''', (identifier, identifier))
-        
+            LIMIT 1
+            """,
+            (identifier, identifier)
+        )
+
         book = cursor.fetchone()
-        conn.close()
-        
         if not book:
+            conn.close()
             return jsonify({"error": "Книга не найдена"}), 404
-        
+
+        cursor.execute(
+            """
+            SELECT id, copy_uid, status, received_at, source_type, source_id, note
+            FROM book_copy
+            WHERE book_id = ?
+            ORDER BY id DESC
+            """,
+            (book['id'],)
+        )
+        copies = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+
         return jsonify({
             "book": {
-                "id": book[0],
-                "title": book[1],
-                "year": book[2],
-                "isbn": book[3],
-                "quantity": book[4],
-                "author": ' '.join(filter(None, [book[5], book[6], book[7]])),
-                "genre": book[8],
-                "publishing_house": book[9],
-            }
+                "id": book['id'],
+                "title": book['name'],
+                "year": book['year'],
+                "isbn": book['isbn'],
+                "quantity": book['quantity'],
+                "author": ' '.join(filter(None, [book['first_name'], book['last_name'], book['patronymic']])),
+                "genre": book['genre'],
+                "publishing_house": book['publishing_house'],
+                "description": book['description'],
+            },
+            "available_copies": [c for c in copies if c['status'] == 'available'],
+            "copies": copies,
         }), 200
-        
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1707,183 +1742,218 @@ def download_report(filename):
 
 @app.route('/api/book/issue', methods=['POST'])
 def issue_book():
+    ensure_supply_schema()
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         required_fields = ['reader_id', 'book_id', 'issue_date', 'return_date']
-        
-        if not all(field in data for field in required_fields):
+
+        if not all(field in data and data[field] for field in required_fields):
             return jsonify({"error": "Не все обязательные поля заполнены"}), 400
-        
+
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        
-        # Проверяем доступность книги (количество в общем каталоге)
-        cursor.execute('SELECT quantity FROM book WHERE id = ?', (data['book_id'],))
+
+        cursor.execute("SELECT quantity FROM book WHERE id = ?", (data['book_id'],))
         book = cursor.fetchone()
-        
         if not book or book[0] <= 0:
             conn.close()
             return jsonify({"error": "Книга недоступна для выдачи"}), 400
-        
-        # Проверяем, есть ли уже выданные экземпляры этого reader_id и book_id
-        cursor.execute('''
-            SELECT id, quantity FROM given_book 
-            WHERE reader_id = ? AND book_id = ? AND return_date >= ?
-        ''', (data['reader_id'], data['book_id'], data['issue_date']))
-        
-        given_book = cursor.fetchone()
-        
-        # Создаем новую запись о выдаче
-        cursor.execute('''
-            INSERT INTO given_book
-            (reader_id, book_id, given_date, return_date, employee_id, quantity) 
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (
-            data['reader_id'], 
-            data['book_id'], 
-            data['issue_date'], 
-            data['return_date'], 
-            current_user.id,
-            1
-        ))
 
-        
-        # Уменьшаем количество доступных книг в общем каталоге
-        cursor.execute('''
-            UPDATE book SET quantity = quantity - 1 
-            WHERE id = ?
-        ''', (data['book_id'],))
-        
+        copy_id = data.get('book_copy_id')
+        if copy_id:
+            cursor.execute("SELECT id, status FROM book_copy WHERE id = ? AND book_id = ?", (copy_id, data['book_id']))
+            copy_row = cursor.fetchone()
+            if not copy_row:
+                conn.close()
+                return jsonify({"error": "Экземпляр книги не найден"}), 404
+            if copy_row[1] != 'available':
+                conn.close()
+                return jsonify({"error": "Экземпляр недоступен для выдачи"}), 400
+        else:
+            cursor.execute(
+                """
+                SELECT id, status FROM book_copy
+                WHERE book_id = ? AND status = 'available'
+                ORDER BY id ASC LIMIT 1
+                """,
+                (data['book_id'],)
+            )
+            copy_row = cursor.fetchone()
+            if not copy_row:
+                conn.close()
+                return jsonify({"error": "Нет доступных экземпляров книги"}), 400
+            copy_id = copy_row[0]
+
+        cursor.execute(
+            """
+            INSERT INTO given_book
+            (reader_id, book_id, book_copy_id, given_date, return_date, employee_id, quantity)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                data['reader_id'],
+                data['book_id'],
+                copy_id,
+                data['issue_date'],
+                data['return_date'],
+                current_user.id,
+                1
+            )
+        )
+
+        old_status = copy_row[1]
+        cursor.execute("UPDATE book_copy SET status = 'issued' WHERE id = ?", (copy_id,))
+        log_copy_status(cursor, copy_id, old_status, 'issued', 'issue', data.get('issue_notes', ''), data['reader_id'])
+
+        cursor.execute('UPDATE book SET quantity = quantity - 1 WHERE id = ?', (data['book_id'],))
+
         conn.commit()
         conn.close()
-        
-        return jsonify({"success": True}), 200
-        
+
+        return jsonify({"success": True, "book_copy_id": copy_id}), 200
+
     except Exception as e:
         if 'conn' in locals():
             conn.rollback()
             conn.close()
         return jsonify({"error": str(e)}), 500
-    
-    
-# Поиск книги для возврата
+
+
 @app.route('/api/book/find-for-return', methods=['GET'])
 def find_book_for_return():
+    ensure_supply_schema()
     try:
         reader_id = request.args.get('reader_id')
         isbn = request.args.get('isbn')
-        
+
         if not reader_id or not isbn:
             return jsonify({"error": "Необходимо указать ID читателя и ISBN"}), 400
-        
+
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        
-        # Ищем активную выдачу по читателю и ISBN
-        cursor.execute('''
-            SELECT gb.id as record_id, 
-                b.name as book_title, 
-                a.last_name || ' ' || a.first_name || COALESCE(' ' || a.patronymic, '') as book_author,
-                gb.given_date as issue_date,
-                gb.return_date as planned_return_date
+        sync_overdue_copy_statuses(cursor)
+        conn.commit()
+
+        cursor.execute(
+            """
+            SELECT gb.id as record_id,
+                   b.name as book_title,
+                   a.last_name || ' ' || a.first_name || COALESCE(' ' || a.patronymic, '') as book_author,
+                   gb.given_date as issue_date,
+                   gb.return_date as planned_return_date,
+                   gb.book_copy_id,
+                   bc.copy_uid,
+                   bc.status as copy_status
             FROM given_book gb
             JOIN book b ON gb.book_id = b.id
             JOIN author a ON b.author_id = a.id
-            WHERE gb.reader_id = ? 
-            AND b.isbn = ?
-            AND gb.return_date_fact IS NULL
+            LEFT JOIN book_copy bc ON bc.id = gb.book_copy_id
+            WHERE gb.reader_id = ?
+              AND b.isbn = ?
+              AND gb.return_date_fact IS NULL
+            ORDER BY gb.id DESC
             LIMIT 1
-        ''', (reader_id, isbn))
-        
+            """,
+            (reader_id, isbn)
+        )
+
         issue_record = cursor.fetchone()
         conn.close()
-        
+
         if not issue_record:
             return jsonify({"error": "Активная выдача не найдена"}), 404
-        
-        # Преобразуем результат в словарь
-        result = {
-            "record_id": issue_record[0],
-            "book_title": issue_record[1],
-            "book_author": issue_record[2],
-            "issue_date": issue_record[3],
-            "planned_return_date": issue_record[4]
-        }
-        
-        return jsonify(result)
-        
+
+        return jsonify(dict(issue_record))
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Обработка возврата книги
+
 @app.route('/api/book/return', methods=['POST'])
 def return_book():
     ensure_reader_schema()
+    ensure_supply_schema()
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         required_fields = ['record_id', 'actual_return_date']
-        
-        if not all(field in data for field in required_fields):
+
+        if not all(field in data and data[field] for field in required_fields):
             return jsonify({"error": "Не все обязательные поля заполнены"}), 400
-        
+
+        final_status = data.get('final_status', 'available')
+        if final_status not in {'available', 'damaged', 'lost', 'written_off'}:
+            return jsonify({"error": "Недопустимый итоговый статус экземпляра"}), 400
+
+        return_comment = (data.get('return_comment') or '').strip()
+        penalty_delta = int(data.get('penalty_delta') or 0)
+
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        
-        # Получаем полную информацию о выдаче
-        cursor.execute('''
-            SELECT gb.book_id, gb.quantity, gb.reader_id, gb.return_date,
+
+        cursor.execute(
+            """
+            SELECT gb.book_id, gb.quantity, gb.reader_id, gb.return_date, gb.book_copy_id,
                    (SELECT late_return_penalty FROM system_settings WHERE id = 1) as penalty
             FROM given_book gb
             WHERE gb.id = ? AND gb.return_date_fact IS NULL
-        ''', (data['record_id'],))
-        
+            """,
+            (data['record_id'],)
+        )
+
         issue_record = cursor.fetchone()
-        
         if not issue_record:
             conn.close()
             return jsonify({"error": "Выдача не найдена или книга уже возвращена"}), 400
-        
-        book_id, quantity, reader_id, planned_return_date, penalty_points = issue_record
+
+        book_id, quantity, reader_id, planned_return_date, book_copy_id, overdue_penalty = issue_record
         actual_return_date = data['actual_return_date']
-        
-        # Проверяем просрочку
+
+        overdue_days = 0
         if actual_return_date > planned_return_date:
-            # Начисляем штрафные баллы
-            cursor.execute('''
-                UPDATE reader
-                SET penalty_points = penalty_points + ?
-                WHERE id = ?
-            ''', (penalty_points, reader_id))
-            log_penalty_change(cursor, reader_id, penalty_points, 'overdue', 'Автоматическое начисление за просрочку возврата', current_user.id)
-            log_reader_action(cursor, reader_id, 'PENALTY_ADD', f'Автоматически начислено {penalty_points} баллов за просрочку', current_user.id)
-        
-        # Обновляем запись о выдаче
-        cursor.execute('''
-            UPDATE given_book 
-            SET return_date_fact = ?
+            overdue_days = (datetime.fromisoformat(actual_return_date) - datetime.fromisoformat(planned_return_date)).days
+            cursor.execute('UPDATE reader SET penalty_points = penalty_points + ? WHERE id = ?', (overdue_penalty, reader_id))
+            log_penalty_change(cursor, reader_id, overdue_penalty, 'overdue', 'Автоматическое начисление за просрочку возврата', current_user.id)
+            log_reader_action(cursor, reader_id, 'PENALTY_ADD', f'Автоматически начислено {overdue_penalty} баллов за просрочку', current_user.id)
+
+        if penalty_delta:
+            cursor.execute('UPDATE reader SET penalty_points = MAX(0, penalty_points + ?) WHERE id = ?', (penalty_delta, reader_id))
+            reason = 'book_damage' if final_status == 'damaged' else 'book_loss' if final_status == 'lost' else 'other'
+            log_penalty_change(cursor, reader_id, penalty_delta, reason, return_comment or 'Начислено при возврате', current_user.id)
+            action_type = 'PENALTY_ADD' if penalty_delta > 0 else 'PENALTY_DEDUCT'
+            log_reader_action(cursor, reader_id, action_type, f'Изменение баллов при возврате: {penalty_delta}', current_user.id)
+
+        cursor.execute(
+            """
+            UPDATE given_book
+            SET return_date_fact = ?, return_status = ?, return_comment = ?, overdue_days = ?
             WHERE id = ?
-        ''', (actual_return_date, data['record_id']))
-        
-        # Увеличиваем количество доступных книг
-        cursor.execute('''
-            UPDATE book 
-            SET quantity = quantity + ? 
-            WHERE id = ?
-        ''', (quantity, book_id))
-        
+            """,
+            (actual_return_date, final_status, return_comment, overdue_days, data['record_id'])
+        )
+
+        if final_status == 'available':
+            cursor.execute('UPDATE book SET quantity = quantity + ? WHERE id = ?', (quantity, book_id))
+
+        if book_copy_id:
+            cursor.execute("SELECT status FROM book_copy WHERE id = ?", (book_copy_id,))
+            old = cursor.fetchone()
+            old_status = old[0] if old else 'issued'
+            cursor.execute('UPDATE book_copy SET status = ?, note = ? WHERE id = ?', (final_status, return_comment, book_copy_id))
+            log_copy_status(cursor, book_copy_id, old_status, final_status, 'return', return_comment, reader_id)
+
         conn.commit()
         conn.close()
-        
-        return jsonify({"success": True})
-        
+
+        return jsonify({"success": True, "overdue_days": overdue_days})
+
     except Exception as e:
         if 'conn' in locals():
             conn.rollback()
             conn.close()
         return jsonify({"error": str(e)}), 500
-    
-    
-    
+
+
 def get_system_settings_data():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
