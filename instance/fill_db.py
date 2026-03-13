@@ -19,6 +19,14 @@ def fill():
         tables_in_delete_order = [
             "reader_action_history",
             "reader_penalty_history",
+            "writeoff_act_item",
+            "writeoff_act",
+            "book_copy",
+            "acceptance_act_item",
+            "acceptance_act",
+            "supply_invoice_item",
+            "supply_invoice",
+            "supplier_contract",
             "lading_bill",
             "order_request",
             "debiting_act",
@@ -108,7 +116,11 @@ def fill():
                 "Сидоров",
                 "Алексеевич",
                 "1990-05-15",
-                "г. Москва",
+                "г. Москва, ул. Арбат, д. 7, кв. 15",
+                "Москва",
+                "Арбат",
+                "7",
+                "15",
                 "alex@example.com",
                 "71234567890",
                 str(today - timedelta(days=120)),
@@ -121,7 +133,11 @@ def fill():
                 "Кузнецова",
                 "Сергеевна",
                 "1985-08-20",
-                "г. Казань",
+                "г. Казань, ул. Кремлевская, д. 2, кв. 8",
+                "Казань",
+                "Кремлевская",
+                "2",
+                "8",
                 "maria@example.com",
                 "79876543210",
                 str(today - timedelta(days=80)),
@@ -134,7 +150,11 @@ def fill():
                 "Орлов",
                 "Петрович",
                 "1994-11-02",
-                "г. Самара",
+                "г. Самара, ул. Молодогвардейская, д. 14",
+                "Самара",
+                "Молодогвардейская",
+                "14",
+                "",
                 "ilya@example.com",
                 "79997774411",
                 str(today - timedelta(days=35)),
@@ -151,25 +171,29 @@ def fill():
                 patronymic,
                 date_birth,
                 address,
+                city,
+                street,
+                house,
+                apartment,
                 email,
                 phone,
                 registered_at,
                 status,
                 penalty_points
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             readers,
         )
 
         # Поставщики
         suppliers = [
-            ("Книжный мир", "info@knigi.ru", "Сергей Васильев"),
-            ("Литература", "sales@literatura.ru", "Ольга Петрова"),
+            ("Книжный мир", "Сергей Васильев", "74951234567", "info@knigi.ru", "Москва", "Тверская", "10", "12", "Надежный партнер", 1),
+            ("Литература", "Ольга Петрова", "78431234567", "sales@literatura.ru", "Казань", "Баумана", "5", "", "Региональный поставщик", 1),
         ]
         cursor.executemany(
             """
-            INSERT INTO supplier (name, contact, contact_person)
-            VALUES (?, ?, ?)
+            INSERT INTO supplier (name, contact_person, phone, email, city, street, house, apartment, comment, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             suppliers,
         )
