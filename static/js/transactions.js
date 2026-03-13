@@ -79,10 +79,17 @@ async function findBook() {
         document.getElementById('book-year').textContent = data.book.year;
         document.getElementById('book-publishing_house').textContent = data.book.publishing_house;
 
-        
+        const copySelect = document.getElementById('issue-book-copy');
+        copySelect.innerHTML = '';
+        (data.available_copies || []).forEach(copy => {
+            const opt = document.createElement('option');
+            opt.value = copy.id;
+            opt.textContent = `${copy.copy_uid} (${copy.status})`;
+            copySelect.appendChild(opt);
+        });
+
         document.getElementById('book-info').style.display = 'block';
-        
-        
+
     } catch (error) {
         console.error('Ошибка при поиске книги:', error);
         alert('Произошла ошибка при поиске книги: ' + error.message);
@@ -113,8 +120,10 @@ async function issueBook() {
             body: JSON.stringify({
                 reader_id: currentReader.id,
                 book_id: currentBook.id,
+                book_copy_id: Number(document.getElementById('issue-book-copy').value),
                 issue_date: issueDate,
-                return_date: returnDate
+                return_date: returnDate,
+                issue_notes: document.getElementById('issue-notes').value.trim()
             })
         });
 
@@ -138,6 +147,7 @@ function resetIssueForm() {
     document.getElementById('reader-info').style.display = 'none';
     document.getElementById('book-isbn').value = '';
     document.getElementById('book-info').style.display = 'none';
+    document.getElementById('issue-book-copy').innerHTML = '';
     document.getElementById('issue-notes').value = '';
     
     const createReaderBtn = document.getElementById('create-reader-btn');
@@ -253,7 +263,7 @@ async function findBookForReturn() {
         }
 
         returnBookRecord = data;
-        document.getElementById('return-book-title').textContent = data.book_title;
+        document.getElementById('return-book-title').textContent = data.book_title + (data.copy_uid ? ` [${data.copy_uid}]` : '');
         document.getElementById('return-book-author').textContent = data.book_author;
         document.getElementById('return-issue-date').textContent = formatDate(data.issue_date);
         document.getElementById('return-planned-date').textContent = formatDate(data.planned_return_date);
@@ -288,6 +298,9 @@ async function processReturn() {
     }
 
     const actualReturnDate = document.getElementById('actual-return-date').value;
+    const finalStatus = document.getElementById('return-final-status').value;
+    const returnComment = document.getElementById('return-notes').value.trim();
+    const penaltyDelta = Number(document.getElementById('return-penalty-delta').value || 0);
 
     if (!actualReturnDate) {
         alert('Укажите фактическую дату возврата');
@@ -306,7 +319,10 @@ async function processReturn() {
             },
             body: JSON.stringify({
                 record_id: returnBookRecord.record_id,
-                actual_return_date: actualReturnDate
+                actual_return_date: actualReturnDate,
+                final_status: finalStatus,
+                return_comment: returnComment,
+                penalty_delta: penaltyDelta
             })
         });
 
@@ -332,6 +348,8 @@ function clearReturnForm() {
     document.getElementById('return-book-info').style.display = 'none';
     document.getElementById('actual-return-date').value = '';
     document.getElementById('return-notes').value = '';
+    document.getElementById('return-final-status').value = 'available';
+    document.getElementById('return-penalty-delta').value = '0';
     document.getElementById('return-btn').disabled = true;
     document.getElementById('debt-notice').style.display = 'none';
     
