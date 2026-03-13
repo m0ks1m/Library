@@ -1,0 +1,108 @@
+/* settings.css - Стили для страницы настроек */
+
+/* Вкладки настроек */
+.settings-tabs {
+    display: flex;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.settings-tab {
+    padding: 12px 20px;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--secondary);
+}
+
+.settings-tab.active {
+    border-bottom-color: var(--primary);
+    color: var(--primary);
+    font-weight: 500;
+}
+
+.settings-tab:hover:not(.active) {
+    background-color: rgba(78, 115, 223, 0.1);
+}
+
+.settings-tab i {
+    font-size: 1.1rem;
+}
+
+/* Контент вкладок */
+.settings-tab-content {
+    display: none;
+    animation: fadeIn 0.3s ease;
+}
+
+.settings-tab-content.active {
+    display: block;
+}
+
+/* Группы настроек */
+.settings-group {
+    margin-bottom: 30px;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.1);
+}
+
+.settings-group-title {
+    color: var(--dark);
+    font-size: 1.2rem;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Чекбоксы и радиокнопки */
+.checkbox-group, .radio-group {
+    margin: 15px 0;
+}
+
+.checkbox-item, .radio-item {
+    margin: 10px 0;
+    display: flex;
+    align-items: center;
+}
+
+.checkbox-item input, .radio-item input {
+    margin-right: 10px;
+}
+
+.checkbox-item label, .radio-item label {
+    cursor: pointer;
+}
+
+/* Анимация появления */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .settings-tabs {
+        flex-direction: column;
+        border-bottom: none;
+    }
+
+    .settings-tab {
+        border-bottom: none;
+        border-left: 3px solid transparent;
+        justify-content: center;
+    }
+
+    .settings-tab.active {
+        border-bottom: none;
+        border-left-color: var(--primary);
+    }
+}

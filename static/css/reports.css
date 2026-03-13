@@ -1,0 +1,101 @@
+.report-results {
+    margin-top: 30px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.1);
+    padding: 20px;
+    overflow-x: auto;
+}
+
+.report-results h3 {
+    color: var(--dark);
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.report-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 15px;
+    color: #4c5567;
+}
+
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.kpi-card {
+    background: #f8f9fc;
+    border-radius: 8px;
+    padding: 12px;
+    border: 1px solid #e9ecef;
+}
+
+.kpi-value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--primary);
+}
+
+.kpi-label {
+    color: #6c757d;
+    font-size: 0.9rem;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+.report-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.report-table th, .report-table td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+.report-table th {
+    background-color: #f8f9fc;
+    font-weight: 600;
+    color: var(--dark);
+}
+
+.report-table tr:hover {
+    background-color: rgba(78, 115, 223, 0.05);
+}
+
+.export-options {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+
+.export-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 8px 15px;
+    background-color: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.3s;
+    text-decoration: none;
+    color: var(--dark);
+}
+
+.export-btn:hover {
+    background-color: #f8f9fa;
+    border-color: var(--primary);
+}

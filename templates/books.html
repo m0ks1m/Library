@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Управление книгами | Твердый переплет</title>
+    <link rel="icon" href="../static/img/icon.png" type="image/x-icon">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="../static/css/styles.css">
+    <link rel="stylesheet" href="../static/css/books.css">
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>
+                    <i class="fas fa-graduation-cap"></i>
+                    <span>Твердый переплет</span>
+                </h2>
+            </div>
+            <nav class="sidebar-nav">
+                <ul>
+                    <li><a href="/" class="active"><i class="fas fa-tachometer-alt"></i>Главная</a></li>
+
+                    {% if role in ['Администратор', 'Библиотекарь'] %}
+                    <li><a href="/books"><i class="fas fa-book"></i>Каталог книг</a></li>
+                    <li><a href="/readers"><i class="fas fa-users"></i>Читатели</a></li>
+                    <li><a href="/transactions"><i class="fas fa-exchange-alt"></i>Выдачи/возвраты</a></li>
+                    {% endif %}
+
+                    {% if role == 'Бухгалтер' or role == 'Администратор' %}
+                    <li><a href="/reports"><i class="fas fa-chart-bar"></i>Отчеты</a></li>
+                    {% endif %}
+
+                    {% if role == 'Администратор' %}
+                    <li><a href="/settings"><i class="fas fa-cog"></i>Настройки</a></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <header class="header">
+                <h1>Управление книгами</h1>
+                <div class="user-menu">
+                    <div class="user-info">
+                        <strong>{{ current_user.first_name }} {{ current_user.last_name }}</strong><br>
+                        <span class="user-role">{{ current_user.role }}</span>
+                    </div>
+                    <div class="user-avatar">
+                        {{ current_user.first_name[0] }}{{ current_user.last_name[0] }}
+                    </div>
+                    <a href="{{ url_for('logout') }}" class="logout-btn" title="Выйти">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </a>
+                </div>
+            </header>
+
+            <div class="tabs">
+                <div class="tab active" onclick="showTab('add-book')">Добавить книгу</div>
+                <div class="tab" onclick="showTab('search-book')">Поиск книг</div>
+            </div>
+
+            <div id="add-book" class="tab-content">
+                <div class="form-container">
+                    <h2 class="form-title">Добавление новой книги</h2>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="title">Название книги*</label>
+                            <input type="text" id="title" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="author">Автор*</label>
+                            <input type="text" id="author" class="form-control" required>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="isbn">ISBN</label>
+                            <input type="text" id="isbn" class="form-control" onchange="checkBookByISBN()">
+                        </div>
+                        <div class="form-group">
+                            <label for="year">Год издания</label>
+                            <input type="number" id="year" class="form-control">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="genre">Жанр*</label>
+                            <input type="text" id="genre" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="quantity">Количество экземпляров*</label>
+                            <input type="number" id="quantity" class="form-control" min="1" value="1" required>
+                        </div>
+                    </div>
+
+                    <!-- <div class="form-group">
+                        <label for="location">Место хранения*</label>
+                        <input type="text" id="location" class="form-control" required>
+                    </div> -->
+
+                    <div class="form-group">
+                        <label for="publishing_house">Издательство*</label>
+                        <input type="text" id="publishing_house" class="form-control" required>
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="btn btn-secondary">Отмена</button>
+                        <button class="btn btn-primary" onclick="saveBook()">Сохранить</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="search-book" class="tab-content" style="display: none;">
+                <div class="form-container">
+                    <h2 class="form-title">Поиск книг</h2>
+            
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="search-title">Название</label>
+                            <input type="text" id="search-title" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="search-author">Автор</label>
+                            <input type="text" id="search-author" class="form-control">
+                        </div>
+                    </div>
+            
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="search-genre">Жанр</label>
+                            <select id="search-genre" class="form-control">
+                                <option value="">Все жанры</option>
+                                <option value="Фантастика">Фантастика</option>
+                                <option value="Детектив">Детектив</option>
+                                <option value="Роман">Роман</option>
+                                <option value="Научная литература">Научная литература</option>
+                                <option value="Учебная литература">Учебная литература</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="search-isbn">ISBN</label>
+                            <input type="text" id="search-isbn" class="form-control">
+                        </div>
+                    </div>
+            
+                    <div class="btn-group">
+                        <button class="btn btn-secondary" onclick="resetSearch()">Сбросить</button>
+                        <button class="btn btn-primary" onclick="searchBooks()">Поиск</button>
+                    </div>
+            
+                    <div class="search-results-container" id="search-results" style="display: none;">
+                        <table class="search-results">
+                            <thead>
+                                <tr>
+                                    <th>Название</th>
+                                    <th>Автор</th>
+                                    <th>Жанр</th>
+                                    <th>Всего</th>
+                                    <th>Доступно</th>
+                                    <th>Издательство</th>
+                                    <th>Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody id="books-table-body">
+                                <!-- Данные будут загружены через JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Модальное окно для списания книги -->
+    <div id="write-off-modal" class="modal">
+        <div class="modal-content">
+            <h3 class="modal-title">Списание книги</h3>
+            <div class="form-group">
+                <label for="write-off-reason">Причина списания*</label>
+                <select id="write-off-reason" class="form-control" required>
+                    <option value="">Выберите причину</option>
+                    <option value="damaged">Повреждение/ветхость</option>
+                    <option value="lost">Утеряна</option>
+                    <option value="obsolete">Устарела</option>
+                    <option value="other">Другая причина</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="write-off-comment">Комментарий</label>
+                <textarea id="write-off-comment" class="form-control" rows="3"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="hideModal('write-off-modal')">Отмена</button>
+                <button class="btn btn-danger" onclick="confirmWriteOff()">Подтвердить списание</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../static/js/main.js"></script>
+    <script src="../static/js/books.js"></script>
+</body>
+</html>

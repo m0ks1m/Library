@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="../static/img/icon.png" type="image/x-icon">
+    <title>Выдача и возврат книг | Твердый переплет</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="../static/css/styles.css">
+    <link rel="stylesheet" href="../static/css/transactions.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>
+                    <i class="fas fa-graduation-cap"></i>
+                    <span>Твердый переплет</span>
+                </h2>
+            </div>
+            <nav class="sidebar-nav">
+                <ul>
+                    <li><a href="/" class="active"><i class="fas fa-tachometer-alt"></i>Главная</a></li>
+
+                    {% if role in ['Администратор', 'Библиотекарь'] %}
+                    <li><a href="/books"><i class="fas fa-book"></i>Каталог книг</a></li>
+                    <li><a href="/readers"><i class="fas fa-users"></i>Читатели</a></li>
+                    <li><a href="/transactions"><i class="fas fa-exchange-alt"></i>Выдачи/возвраты</a></li>
+                    {% endif %}
+
+                    {% if role == 'Бухгалтер' or role == 'Администратор' %}
+                    <li><a href="/reports"><i class="fas fa-chart-bar"></i>Отчеты</a></li>
+                    {% endif %}
+
+                    {% if role == 'Администратор' %}
+                    <li><a href="/settings"><i class="fas fa-cog"></i>Настройки</a></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <header class="header">
+                <h1>Выдача и возврат книг</h1>
+                <div class="user-menu">
+                    <div class="user-info">
+                        <strong>{{ current_user.first_name }} {{ current_user.last_name }}</strong><br>
+                        <span class="user-role">{{ current_user.role }}</span>
+                    </div>
+                    <div class="user-avatar">
+                        {{ current_user.first_name[0] }}{{ current_user.last_name[0] }}
+                    </div>
+                    <a href="{{ url_for('logout') }}" class="logout-btn" title="Выйти">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </a>
+                </div>
+            </header>
+
+            <div class="tabs">
+                <div class="tab active" onclick="showTab('issue-book')">Выдача книги</div>
+                <div class="tab" onclick="showTab('return-book')">Возврат книги</div>
+            </div>
+
+            <div id="issue-book" class="tab-content">
+                <div class="form-container">
+                    <h2 class="form-title">Выдача книги читателю</h2>
+
+                    <div class="form-group">
+                        <label for="reader-ticket">Телефон читателя*</label>
+                        <input type="text" id="reader-ticket" class="form-control" required>
+                        <button class="btn btn-secondary" style="margin-top: 10px; width: auto;" onclick="findReader()">
+                            Найти читателя
+                        </button>
+                    </div>
+
+                    <div class="info-card" id="reader-info" style="display: none;">
+                        <div class="info-title">Информация о читателе</div>
+                        <div class="info-content">
+                            <div class="info-item">
+                                <div class="info-label">ФИО</div>
+                                <div class="info-value" id="reader-name">Иванов Иван Иванович</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Телефон</div>
+                                <div class="info-value" id="reader-phone">+7 (123) 456-78-90</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Штрафные баллы</div>
+                                <div class="info-value" id="reader-penalty-points">0</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="book-isbn">ISBN или код книги*</label>
+                        <input type="text" id="book-isbn" class="form-control" required>
+                        <button class="btn btn-secondary" style="margin-top: 10px; width: auto;" onclick="findBook()">
+                            Найти книгу
+                        </button>
+                    </div>
+
+                    <div class="info-card" id="book-info" style="display: none;">
+                        <div class="info-title">Информация о книге</div>
+                        <div class="info-content">
+                            <div class="info-item">
+                                <div class="info-label">Название</div>
+                                <div class="info-value" id="book-title">Математика. 5 класс</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Автор</div>
+                                <div class="info-value" id="book-author">Иванов А.А.</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Год издания</div>
+                                <div class="info-value" id="book-year">2020</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Издательство</div>
+                                <div class="info-value" id="book-publishing_house">Не указан</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="issue-date">Дата выдачи*</label>
+                            <input type="date" id="issue-date" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="return-date">Дата возврата*</label>
+                            <input type="date" id="return-date" class="form-control" required readonly>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="issue-notes">Примечания</label>
+                        <textarea id="issue-notes" class="form-control" rows="3"></textarea>
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="btn btn-secondary">Отмена</button>
+                        <button class="btn btn-success" onclick="issueBook()">Выдать книгу</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="return-book" class="tab-content" style="display: none;">
+                <div class="form-container">
+                    <h2 class="form-title">Возврат книги</h2>
+
+                    <!-- Поиск читателя -->
+                    <div class="form-group">
+                        <label for="return-reader-phone">Телефон читателя*</label>
+                        <input type="text" id="return-reader-phone" class="form-control" required>
+                        <button class="btn btn-secondary" style="margin-top: 10px; width: auto;" onclick="findReaderForReturn()">
+                            Найти читателя
+                        </button>
+                    </div>
+
+                    <!-- Информация о читателе -->
+                    <div class="info-card" id="return-reader-info" style="display: none;">
+                        <div class="info-title">Информация о читателе</div>
+                        <div class="info-content">
+                            <div class="info-item">
+                                <div class="info-label">ФИО</div>
+                                <div class="info-value" id="return-reader-name"></div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Телефон</div>
+                                <div class="info-value" id="return-reader-phone-display"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Поиск книги -->
+                    <div class="form-group">
+                        <label for="return-book-isbn">ISBN книги*</label>
+                        <input type="text" id="return-book-isbn" class="form-control" required>
+                        <button class="btn btn-secondary" style="margin-top: 10px; width: auto;" onclick="findBookForReturn()">
+                            Найти книгу
+                        </button>
+                    </div>
+
+                    <!-- Информация о выдаче -->
+                    <div class="info-card" id="return-book-info" style="display: none;">
+                        <div class="info-title">Информация о выдаче</div>
+                        <div class="info-content">
+                            <div class="info-item">
+                                <div class="info-label">Название книги</div>
+                                <div class="info-value" id="return-book-title"></div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Автор</div>
+                                <div class="info-value" id="return-book-author"></div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Дата выдачи</div>
+                                <div class="info-value" id="return-issue-date"></div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Планируемая дата возврата</div>
+                                <div class="info-value" id="return-planned-date"></div>
+                            </div>
+                            <input type="hidden" id="return-record-id">
+                        </div>
+
+                        <div class="debt-notice" id="debt-notice" style="display: none;">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <div class="debt-notice-content">
+                                <h4>Задолженность по возврату</h4>
+                                <p id="debt-message"></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Форма возврата -->
+                    <div class="form-group">
+                        <label for="actual-return-date">Фактическая дата возврата*</label>
+                        <input type="date" id="actual-return-date" class="form-control" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="return-notes">Примечания</label>
+                        <textarea id="return-notes" class="form-control" rows="3"></textarea>
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="btn btn-secondary" onclick="clearReturnForm()">Отмена</button>
+                        <button class="btn btn-success" id="return-btn" onclick="processReturn()" disabled>Подтвердить возврат</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="../static/js/main.js"></script>
+    <script src="../static/js/transactions.js"></script>
+</body>
+</html>

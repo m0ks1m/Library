@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Настройки | Твердый переплет</title>
+    <link rel="icon" href="../static/img/icon.png" type="image/x-icon">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="../static/css/styles.css">
+    <link rel="stylesheet" href="../static/css/settings.css">
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>
+                    <i class="fas fa-graduation-cap"></i>
+                    <span>Твердый переплет</span>
+                </h2>
+            </div>
+            <nav class="sidebar-nav">
+                <ul>
+                    <li><a href="/" class="active"><i class="fas fa-tachometer-alt"></i>Главная</a></li>
+
+                    {% if role in ['Администратор', 'Библиотекарь'] %}
+                    <li><a href="/books"><i class="fas fa-book"></i>Каталог книг</a></li>
+                    <li><a href="/readers"><i class="fas fa-users"></i>Читатели</a></li>
+                    <li><a href="/transactions"><i class="fas fa-exchange-alt"></i>Выдачи/возвраты</a></li>
+                    {% endif %}
+
+                    {% if role == 'Бухгалтер' or role == 'Администратор' %}
+                    <li><a href="/reports"><i class="fas fa-chart-bar"></i>Отчеты</a></li>
+                    {% endif %}
+
+                    {% if role == 'Администратор' %}
+                    <li><a href="/settings"><i class="fas fa-cog"></i>Настройки</a></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <header class="header">
+                <h1>Настройки системы</h1>
+                <div class="user-menu">
+                    <div class="user-info">
+                        <strong>{{ current_user.first_name }} {{ current_user.last_name }}</strong><br>
+                        <span class="user-role">{{ current_user.role }}</span>
+                    </div>
+                    <div class="user-avatar">
+                        {{ current_user.first_name[0] }}{{ current_user.last_name[0] }}
+                    </div>
+                    <a href="{{ url_for('logout') }}" class="logout-btn" title="Выйти">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </a>
+                </div>
+            </header>
+
+            <div class="settings-tabs">
+                <!-- <div class="settings-tab active" onclick="showSettingsTab('system-settings')">
+                    <i class="fas fa-server"></i> Системные
+                </div> -->
+                <div class="settings-tab" onclick="showSettingsTab('library-settings')">
+                    <i class="fas fa-book-open"></i> Библиотечные
+                </div>
+                <!-- <div class="settings-tab" onclick="showSettingsTab('user-settings')">
+                    <i class="fas fa-user-cog"></i> Пользовательские
+
+                </div> -->
+                <!-- </div> -->
+                <div class="settings-tab" onclick="showSettingsTab('new-user-settings')">
+                    <i class="fas fa-user-cog"></i> Добавление пользователя
+                </div>
+            </div>
+
+            <!-- <div id="system-settings" class="settings-tab-content">
+                <div class="form-container">
+                    <h2 class="form-title"><i class="fas fa-server"></i> Системные настройки</h2>
+
+                    <div class="form-group">
+                        <label for="system-language">Язык системы</label>
+                        <select id="system-language" class="form-control">
+                            <option value="ru">Русский</option>
+                            <option value="en">English</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="backup-frequency">Частота автоматического резервного копирования</label>
+                        <select id="backup-frequency" class="form-control">
+                            <option value="daily">Ежедневно</option>
+                            <option value="weekly" selected>Еженедельно</option>
+                            <option value="monthly">Ежемесячно</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="session-timeout">Таймаут сессии (минут)</label>
+                        <input type="number" id="session-timeout" class="form-control" value="30" min="5" max="240">
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="btn btn-secondary">Сбросить</button>
+                        <button class="btn btn-primary" onclick="saveSystemSettings()">Сохранить</button>
+                    </div>
+                </div>
+            </div> -->
+
+            <div id="library-settings" class="settings-tab-content" style="display: block;">
+                <div class="form-container">
+                    <h2 class="form-title"><i class="fas fa-book-open"></i> Библиотечные настройки</h2>
+
+                    <div class="form-group">
+                        <label for="standart_rental_period">Стандартный срок выдачи книг (дней)</label>
+                        <input type="number" id="standart_rental_period" class="form-control" value={{ system_settings['system_settings']['standart_rental_period'] }} min="1" max="365">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="max_books_per_reader">Максимум книг на одного читателя</label>
+                        <input type="number" id="max_books_per_reader" class="form-control" value={{ system_settings['system_settings']['max_books_per_reader'] }} min="1" max="20">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="late_return_penalty">Штраф читателю за просрочку (баллов)</label>
+                        <input type="number" id="late_return_penalty" class="form-control" value={{ system_settings['system_settings']['late_return_penalty'] }} min="1" max="20">
+                    </div>
+
+                    <!-- <div class="form-group">
+                        <label for="fine-per-day">Штраф за просрочку (в день)</label>
+                        <input type="number" id="fine-per-day" class="form-control" value="10" min="0" step="10">
+                    </div> -->
+
+                    <!-- <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="allow-reservations" checked>
+                            Разрешить бронирование книг
+                        </label>
+                    </div> -->
+
+                    <div class="btn-group">
+                        <button class="btn btn-secondary">Сбросить</button>
+                        <button class="btn btn-primary" onclick="saveLibrarySettings()">Сохранить</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- <div id="user-settings" class="settings-tab-content" style="display: none;">
+                <div class="form-container">
+                    <h2 class="form-title"><i class="fas fa-user-cog"></i> Пользовательские настройки</h2>
+
+                    <div class="form-group">
+                        <label for="user-name">Имя пользователя</label>
+                        <input type="text" id="user-name" class="form-control" value="Администратор">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="user-email">Email</label>
+                        <input type="email" id="user-email" class="form-control" value="admin@library.ru">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="user-password">Новый пароль</label>
+                        <input type="password" id="user-password" class="form-control" placeholder="Оставьте пустым, чтобы не менять">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="user-password-confirm">Подтверждение пароля</label>
+                        <input type="password" id="user-password-confirm" class="form-control">
+                    </div>
+
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="receive-notifications" checked>
+                            Получать уведомления по email
+                        </label>
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="btn btn-secondary">Сбросить</button>
+                        <button class="btn btn-primary" onclick="saveUserSettings()">Сохранить</button>
+                    </div>
+                </div> -->
+            <!-- </div> -->
+
+            <div id="new-user-settings" class="settings-tab-content" style="display: none;">
+                <div class="form-container">
+                    <h2 class="form-title"><i class="fas fa-user-plus"></i> Добавление нового пользователя</h2>
+
+                    <form id="new-user-form">
+                        <div class="form-group">
+                            <label for="first_name">Имя</label>
+                            <input type="text" id="first_name" name="first_name" class="form-control" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="last_name">Фамилия</label>
+                            <input type="text" id="last_name" name="last_name" class="form-control" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="patronymic">Отчество</label>
+                            <input type="text" id="patronymic" name="patronymic" class="form-control">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="position">Должность</label>
+                            <select id="position" name="position" class="form-control" required>
+                                <option value="">Выберите должность</option>
+                                <option value="Бухгалтер">Бухгалтер</option>
+                                <option value="Администратор">Администратор</option>
+                                <option value="Библиотекарь">Библиотекарь</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="login">Логин</label>
+                            <input type="text" id="login" name="login" class="form-control" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="password">Пароль</label>
+                            <input type="password" id="password" name="password" class="form-control" required>
+                        </div>
+
+                        <div class="btn-group">
+                            <button type="reset" class="btn btn-secondary">Очистить</button>
+                            <button type="button" class="btn btn-primary" id="add-user-btn">Добавить пользователя</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="../static/js/main.js"></script>
+    <script src="../static/js/settings.js"></script>
+</body>
+</html>
