@@ -1,2 +1,5 @@
 __pycache__/
 instance/sqlite.db
+*.pyc
+reports/*.pdf
+reports/*_[0-9]*.docx
