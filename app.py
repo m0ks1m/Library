@@ -6,6 +6,7 @@ import sqlite3
 import os
 import csv
 from datetime import datetime
+import re
 from instance.fill_db import fill
 from config import DB_PATH
 
@@ -88,6 +89,174 @@ def ensure_reader_schema():
     conn.close()
 
 
+def ensure_supply_schema():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS supplier (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name VARCHAR(250) NOT NULL,
+            contact_person VARCHAR(250),
+            phone VARCHAR(50),
+            email VARCHAR(250),
+            city VARCHAR(100),
+            street VARCHAR(150),
+            house VARCHAR(30),
+            apartment VARCHAR(30),
+            comment VARCHAR(250),
+            is_active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.execute("PRAGMA table_info(supplier)")
+    supplier_columns = {row[1] for row in cursor.fetchall()}
+    migration_columns = {
+        'phone': "ALTER TABLE supplier ADD COLUMN phone VARCHAR(50)",
+        'email': "ALTER TABLE supplier ADD COLUMN email VARCHAR(250)",
+        'city': "ALTER TABLE supplier ADD COLUMN city VARCHAR(100)",
+        'street': "ALTER TABLE supplier ADD COLUMN street VARCHAR(150)",
+        'house': "ALTER TABLE supplier ADD COLUMN house VARCHAR(30)",
+        'apartment': "ALTER TABLE supplier ADD COLUMN apartment VARCHAR(30)",
+        'comment': "ALTER TABLE supplier ADD COLUMN comment VARCHAR(250)",
+        'is_active': "ALTER TABLE supplier ADD COLUMN is_active INTEGER DEFAULT 1",
+        'created_at': "ALTER TABLE supplier ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+    }
+    for column_name, sql in migration_columns.items():
+        if column_name not in supplier_columns:
+            cursor.execute(sql)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS supplier_contract (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contract_number VARCHAR(50) NOT NULL,
+            signed_at DATE NOT NULL,
+            supplier_id INTEGER NOT NULL,
+            start_date DATE,
+            end_date DATE,
+            amount_or_terms VARCHAR(250),
+            comment VARCHAR(250),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (supplier_id) REFERENCES supplier(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS supply_invoice (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_number VARCHAR(50) NOT NULL,
+            invoice_date DATE NOT NULL,
+            supplier_id INTEGER NOT NULL,
+            contract_id INTEGER,
+            responsible_person VARCHAR(120),
+            comment VARCHAR(250),
+            status VARCHAR(20) DEFAULT 'DRAFT',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (supplier_id) REFERENCES supplier(id),
+            FOREIGN KEY (contract_id) REFERENCES supplier_contract(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS supply_invoice_item (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_id INTEGER NOT NULL,
+            book_id INTEGER NOT NULL,
+            quantity INTEGER NOT NULL,
+            unit_price REAL DEFAULT 0,
+            FOREIGN KEY (invoice_id) REFERENCES supply_invoice(id),
+            FOREIGN KEY (book_id) REFERENCES book(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS acceptance_act (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            act_number VARCHAR(50) NOT NULL,
+            act_date DATE NOT NULL,
+            supplier_id INTEGER NOT NULL,
+            contract_id INTEGER,
+            responsible_person VARCHAR(120),
+            comment VARCHAR(250),
+            status VARCHAR(20) DEFAULT 'DRAFT',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (supplier_id) REFERENCES supplier(id),
+            FOREIGN KEY (contract_id) REFERENCES supplier_contract(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS acceptance_act_item (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            act_id INTEGER NOT NULL,
+            book_id INTEGER NOT NULL,
+            quantity INTEGER NOT NULL,
+            unit_price REAL DEFAULT 0,
+            FOREIGN KEY (act_id) REFERENCES acceptance_act(id),
+            FOREIGN KEY (book_id) REFERENCES book(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS book_copy (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            copy_uid VARCHAR(30) UNIQUE,
+            book_id INTEGER NOT NULL,
+            acceptance_act_id INTEGER,
+            status VARCHAR(20) DEFAULT 'available',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (book_id) REFERENCES book(id),
+            FOREIGN KEY (acceptance_act_id) REFERENCES acceptance_act(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS writeoff_act (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            act_number VARCHAR(50) NOT NULL,
+            act_date DATE NOT NULL,
+            basis VARCHAR(250),
+            responsible_person VARCHAR(120),
+            comment VARCHAR(250),
+            status VARCHAR(20) DEFAULT 'DRAFT',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS writeoff_act_item (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            act_id INTEGER NOT NULL,
+            book_copy_id INTEGER NOT NULL,
+            reason VARCHAR(40) NOT NULL,
+            FOREIGN KEY (act_id) REFERENCES writeoff_act(id),
+            FOREIGN KEY (book_copy_id) REFERENCES book_copy(id)
+        )
+    """)
+
+    cursor.execute("PRAGMA table_info(reader)")
+    reader_columns = {row[1] for row in cursor.fetchall()}
+    if 'city' not in reader_columns:
+        cursor.execute("ALTER TABLE reader ADD COLUMN city VARCHAR(100)")
+    if 'street' not in reader_columns:
+        cursor.execute("ALTER TABLE reader ADD COLUMN street VARCHAR(150)")
+    if 'house' not in reader_columns:
+        cursor.execute("ALTER TABLE reader ADD COLUMN house VARCHAR(30)")
+    if 'apartment' not in reader_columns:
+        cursor.execute("ALTER TABLE reader ADD COLUMN apartment VARCHAR(30)")
+
+    conn.commit()
+    conn.close()
+
+
+def normalize_phone(phone):
+    digits = re.sub(r"\D", "", phone or "")
+    if len(digits) == 11 and digits[0] in ('7', '8'):
+        return '7' + digits[1:]
+    return digits
+
+
 def log_reader_action(cursor, reader_id, action_type, details='', employee_id=None):
     cursor.execute(
         "INSERT INTO reader_action_history (reader_id, action_type, details, employee_id) VALUES (?, ?, ?, ?)",
@@ -142,6 +311,14 @@ def reports_page():
 @login_required
 def settings_page():
     return render_template('settings.html', role=current_user.role, system_settings={'system_settings': get_system_settings_data() or {}})
+
+# Страница поставщиков и поставок
+@app.route('/supplies')
+@role_required('Библиотекарь', 'Бухгалтер', 'Администратор')
+@login_required
+def supplies_page():
+    ensure_supply_schema()
+    return render_template('supplies.html', role=current_user.role)
 
 ###############################################################################################
 
@@ -319,6 +496,10 @@ def list_readers():
                 r.patronymic,
                 r.date_birth,
                 r.address,
+                r.city,
+                r.street,
+                r.house,
+                r.apartment,
                 r.email,
                 r.phone,
                 r.registered_at,
@@ -344,7 +525,7 @@ def list_readers():
             params.extend([query if query.isdigit() else -1, f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"])
 
         sql += """
-            GROUP BY r.id, r.ticket_number, r.first_name, r.last_name, r.patronymic, r.date_birth, r.address, r.email, r.phone, r.registered_at, r.status, r.penalty_points
+            GROUP BY r.id, r.ticket_number, r.first_name, r.last_name, r.patronymic, r.date_birth, r.address, r.city, r.street, r.house, r.apartment, r.email, r.phone, r.registered_at, r.status, r.penalty_points
             ORDER BY r.last_name, r.first_name
         """
 
@@ -362,7 +543,7 @@ def add_reader():
     ensure_reader_schema()
     try:
         data = request.get_json() or {}
-        required_fields = ['firstName', 'lastName', 'phone', 'address', 'email', 'birthdate']
+        required_fields = ['firstName', 'lastName', 'phone', 'city', 'street', 'house', 'email', 'birthdate']
         if not all(data.get(field) for field in required_fields):
             return jsonify({'error': 'Не заполнены обязательные поля'}), 400
 
@@ -370,16 +551,20 @@ def add_reader():
         cursor = conn.cursor()
 
         cursor.execute("""
-            INSERT INTO reader (first_name, last_name, patronymic, date_birth, phone, address, email, registered_at, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+            INSERT INTO reader (first_name, last_name, patronymic, date_birth, phone, address, city, street, house, apartment, email, registered_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
         """, (
             data['firstName'].strip(),
             data['lastName'].strip(),
             data.get('patronymic', '').strip(),
             data['birthdate'],
-            data['phone'],
-            data['address'].strip(),
-            data['email'].strip(),
+            normalize_phone(data['phone']),
+            f"г. {data['city'].strip()}, ул. {data['street'].strip()}, д. {data['house'].strip()}" + (f", кв. {data.get('apartment', '').strip()}" if data.get('apartment') else ''),
+            data['city'].strip(),
+            data['street'].strip(),
+            data['house'].strip(),
+            data.get('apartment', '').strip(),
+            data['email'].strip().lower(),
             data.get('status', 'ACTIVE')
         ))
 
@@ -421,6 +606,10 @@ def get_reader_details(reader_id):
                 r.patronymic,
                 r.date_birth,
                 r.address,
+                r.city,
+                r.street,
+                r.house,
+                r.apartment,
                 r.email,
                 r.phone,
                 r.registered_at,
@@ -477,16 +666,20 @@ def update_reader(reader_id):
 
         cursor.execute("""
             UPDATE reader
-            SET first_name = ?, last_name = ?, patronymic = ?, date_birth = ?, phone = ?, address = ?, email = ?, status = ?
+            SET first_name = ?, last_name = ?, patronymic = ?, date_birth = ?, phone = ?, address = ?, city = ?, street = ?, house = ?, apartment = ?, email = ?, status = ?
             WHERE id = ?
         """, (
             data.get('firstName', '').strip(),
             data.get('lastName', '').strip(),
             data.get('patronymic', '').strip(),
             data.get('birthdate'),
-            data.get('phone'),
-            data.get('address', '').strip(),
-            data.get('email', '').strip(),
+            normalize_phone(data.get('phone')),
+            f"г. {data.get('city', '').strip()}, ул. {data.get('street', '').strip()}, д. {data.get('house', '').strip()}" + (f", кв. {data.get('apartment', '').strip()}" if data.get('apartment') else ''),
+            data.get('city', '').strip(),
+            data.get('street', '').strip(),
+            data.get('house', '').strip(),
+            data.get('apartment', '').strip(),
+            data.get('email', '').strip().lower(),
             data.get('status', 'ACTIVE'),
             reader_id
         ))
@@ -567,6 +760,377 @@ def change_reader_penalty(reader_id):
         return jsonify({'error': str(e)}), 500
 
 
+
+@app.route('/api/suppliers', methods=['GET'])
+@login_required
+def list_suppliers():
+    ensure_supply_schema()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM supplier ORDER BY id DESC")
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify({'success': True, 'suppliers': rows})
+
+
+@app.route('/api/suppliers', methods=['POST'])
+@login_required
+def create_supplier():
+    ensure_supply_schema()
+    data = request.get_json() or {}
+    if not data.get('name'):
+        return jsonify({'error': 'Название обязательно'}), 400
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO supplier (name, contact_person, phone, email, city, street, house, apartment, comment, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            data.get('name', '').strip(),
+            data.get('contact_person', '').strip(),
+            normalize_phone(data.get('phone', '')),
+            data.get('email', '').strip().lower(),
+            data.get('city', '').strip(),
+            data.get('street', '').strip(),
+            data.get('house', '').strip(),
+            data.get('apartment', '').strip(),
+            data.get('comment', '').strip(),
+            1 if data.get('is_active', True) else 0,
+        ),
+    )
+    supplier_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'supplier_id': supplier_id}), 201
+
+
+@app.route('/api/suppliers/<int:supplier_id>', methods=['PUT'])
+@login_required
+def update_supplier(supplier_id):
+    ensure_supply_schema()
+    data = request.get_json() or {}
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE supplier
+        SET name=?, contact_person=?, phone=?, email=?, city=?, street=?, house=?, apartment=?, comment=?, is_active=?
+        WHERE id=?
+        """,
+        (
+            data.get('name', '').strip(),
+            data.get('contact_person', '').strip(),
+            normalize_phone(data.get('phone', '')),
+            data.get('email', '').strip().lower(),
+            data.get('city', '').strip(),
+            data.get('street', '').strip(),
+            data.get('house', '').strip(),
+            data.get('apartment', '').strip(),
+            data.get('comment', '').strip(),
+            1 if data.get('is_active', True) else 0,
+            supplier_id,
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+
+@app.route('/api/suppliers/<int:supplier_id>', methods=['DELETE'])
+@login_required
+def delete_supplier(supplier_id):
+    ensure_supply_schema()
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE supplier SET is_active = 0 WHERE id = ?", (supplier_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+
+@app.route('/api/contracts', methods=['GET', 'POST'])
+@login_required
+def contracts_handler():
+    ensure_supply_schema()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    if request.method == 'GET':
+        cursor.execute(
+            """
+            SELECT c.*, s.name AS supplier_name
+            FROM supplier_contract c
+            JOIN supplier s ON s.id = c.supplier_id
+            ORDER BY c.id DESC
+            """
+        )
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'contracts': rows})
+
+    data = request.get_json() or {}
+    cursor.execute(
+        """
+        INSERT INTO supplier_contract (contract_number, signed_at, supplier_id, start_date, end_date, amount_or_terms, comment)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            data.get('contract_number'),
+            data.get('signed_at'),
+            data.get('supplier_id'),
+            data.get('start_date'),
+            data.get('end_date'),
+            data.get('amount_or_terms', ''),
+            data.get('comment', ''),
+        ),
+    )
+    new_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'contract_id': new_id}), 201
+
+
+def _calc_total(items):
+    return round(sum((int(i.get('quantity', 0)) * float(i.get('unit_price', 0) or 0)) for i in items), 2)
+
+
+@app.route('/api/invoices', methods=['GET', 'POST'])
+@login_required
+def invoices_handler():
+    ensure_supply_schema()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    if request.method == 'GET':
+        cursor.execute(
+            """
+            SELECT i.*, s.name AS supplier_name, c.contract_number,
+                   COALESCE(SUM(ii.quantity * ii.unit_price), 0) AS total
+            FROM supply_invoice i
+            JOIN supplier s ON s.id = i.supplier_id
+            LEFT JOIN supplier_contract c ON c.id = i.contract_id
+            LEFT JOIN supply_invoice_item ii ON ii.invoice_id = i.id
+            GROUP BY i.id
+            ORDER BY i.id DESC
+            """
+        )
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'invoices': rows})
+
+    data = request.get_json() or {}
+    items = data.get('items', [])
+    cursor.execute(
+        """
+        INSERT INTO supply_invoice (invoice_number, invoice_date, supplier_id, contract_id, responsible_person, comment)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            data.get('invoice_number'),
+            data.get('invoice_date'),
+            data.get('supplier_id'),
+            data.get('contract_id'),
+            data.get('responsible_person', ''),
+            data.get('comment', ''),
+        ),
+    )
+    invoice_id = cursor.lastrowid
+    for item in items:
+        cursor.execute(
+            "INSERT INTO supply_invoice_item (invoice_id, book_id, quantity, unit_price) VALUES (?, ?, ?, ?)",
+            (invoice_id, item.get('book_id'), item.get('quantity'), item.get('unit_price', 0)),
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'invoice_id': invoice_id, 'total': _calc_total(items)}), 201
+
+
+@app.route('/api/acceptance-acts', methods=['GET', 'POST'])
+@login_required
+def acceptance_acts_handler():
+    ensure_supply_schema()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    if request.method == 'GET':
+        cursor.execute(
+            """
+            SELECT a.*, s.name AS supplier_name, c.contract_number,
+                   COALESCE(SUM(ai.quantity * ai.unit_price), 0) AS total
+            FROM acceptance_act a
+            JOIN supplier s ON s.id = a.supplier_id
+            LEFT JOIN supplier_contract c ON c.id = a.contract_id
+            LEFT JOIN acceptance_act_item ai ON ai.act_id = a.id
+            GROUP BY a.id
+            ORDER BY a.id DESC
+            """
+        )
+        acts = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'acts': acts})
+
+    data = request.get_json() or {}
+    items = data.get('items', [])
+    cursor.execute(
+        """
+        INSERT INTO acceptance_act (act_number, act_date, supplier_id, contract_id, responsible_person, comment)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            data.get('act_number'),
+            data.get('act_date'),
+            data.get('supplier_id'),
+            data.get('contract_id'),
+            data.get('responsible_person', ''),
+            data.get('comment', ''),
+        ),
+    )
+    act_id = cursor.lastrowid
+
+    for item in items:
+        q = int(item.get('quantity', 0))
+        p = float(item.get('unit_price', 0) or 0)
+        book_id = item.get('book_id')
+        cursor.execute(
+            "INSERT INTO acceptance_act_item (act_id, book_id, quantity, unit_price) VALUES (?, ?, ?, ?)",
+            (act_id, book_id, q, p),
+        )
+        cursor.execute("UPDATE book SET quantity = quantity + ? WHERE id = ?", (q, book_id))
+        for _ in range(q):
+            uid = f"CP-{act_id}-{book_id}-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+            cursor.execute(
+                "INSERT INTO book_copy (copy_uid, book_id, acceptance_act_id, status) VALUES (?, ?, ?, 'available')",
+                (uid, book_id, act_id),
+            )
+
+    cursor.execute("UPDATE acceptance_act SET status = 'CONFIRMED' WHERE id = ?", (act_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'act_id': act_id, 'total': _calc_total(items)}), 201
+
+
+@app.route('/api/acceptance-acts/<int:act_id>/print', methods=['GET'])
+@login_required
+def print_acceptance_act(act_id):
+    ensure_supply_schema()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT a.*, s.name AS supplier_name, c.contract_number
+        FROM acceptance_act a
+        JOIN supplier s ON s.id = a.supplier_id
+        LEFT JOIN supplier_contract c ON c.id = a.contract_id
+        WHERE a.id = ?
+        """,
+        (act_id,),
+    )
+    act = cursor.fetchone()
+    if not act:
+        conn.close()
+        return jsonify({'error': 'Акт не найден'}), 404
+    cursor.execute(
+        """
+        SELECT ai.quantity, ai.unit_price, b.name AS book_name
+        FROM acceptance_act_item ai
+        JOIN book b ON b.id = ai.book_id
+        WHERE ai.act_id = ?
+        """,
+        (act_id,),
+    )
+    items = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify({'success': True, 'act': dict(act), 'items': items, 'total': _calc_total(items)})
+
+
+@app.route('/api/writeoff-acts', methods=['GET', 'POST'])
+@login_required
+def writeoff_acts_handler():
+    ensure_supply_schema()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    if request.method == 'GET':
+        cursor.execute(
+            """
+            SELECT w.*, COUNT(wi.id) AS items_count
+            FROM writeoff_act w
+            LEFT JOIN writeoff_act_item wi ON wi.act_id = w.id
+            GROUP BY w.id
+            ORDER BY w.id DESC
+            """
+        )
+        acts = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'acts': acts})
+
+    data = request.get_json() or {}
+    items = data.get('items', [])
+    allowed = {'износ', 'утеря', 'повреждение', 'устаревание', 'другое'}
+
+    cursor.execute(
+        """
+        INSERT INTO writeoff_act (act_number, act_date, basis, responsible_person, comment, status)
+        VALUES (?, ?, ?, ?, ?, 'CONFIRMED')
+        """,
+        (
+            data.get('act_number'),
+            data.get('act_date'),
+            data.get('basis', ''),
+            data.get('responsible_person', ''),
+            data.get('comment', ''),
+        ),
+    )
+    act_id = cursor.lastrowid
+
+    for item in items:
+        copy_id = item.get('book_copy_id')
+        reason = (item.get('reason') or '').strip().lower()
+        if reason not in allowed:
+            reason = 'другое'
+        cursor.execute(
+            "INSERT INTO writeoff_act_item (act_id, book_copy_id, reason) VALUES (?, ?, ?)",
+            (act_id, copy_id, reason),
+        )
+        cursor.execute("UPDATE book_copy SET status = 'written_off' WHERE id = ?", (copy_id,))
+
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'act_id': act_id}), 201
+
+
+@app.route('/api/book-copies', methods=['GET'])
+@login_required
+def list_book_copies():
+    ensure_supply_schema()
+    status = request.args.get('status')
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    sql = """
+        SELECT bc.id, bc.copy_uid, bc.status, b.name AS book_name
+        FROM book_copy bc
+        JOIN book b ON b.id = bc.book_id
+        WHERE 1=1
+    """
+    params = []
+    if status:
+        sql += " AND bc.status = ?"
+        params.append(status)
+    sql += " ORDER BY bc.id DESC LIMIT 500"
+    cursor.execute(sql, params)
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify({'success': True, 'copies': rows})
+
+
 @app.route('/api/books/all', methods=['GET'])
 def get_all_books():
     try:
@@ -618,7 +1182,7 @@ def get_all_books():
 @app.route('/api/reader/by-phone', methods=['GET'])
 def get_reader_by_phone():
     try:
-        phone = request.args.get('phone')
+        phone = normalize_phone(request.args.get('phone'))
         if not phone:
             return jsonify({"error": "Не указан телефон"}), 400
         
@@ -1406,4 +1970,5 @@ if __name__ == '__main__':
     if not os.path.exists(DB_PATH):
         fill()
     ensure_reader_schema()
+    ensure_supply_schema()
     app.run(debug=True)
