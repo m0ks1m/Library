@@ -28,6 +28,7 @@
                     <li><a href="/books"><i class="fas fa-book"></i>Каталог книг</a></li>
                     <li><a href="/readers"><i class="fas fa-users"></i>Читатели</a></li>
                     <li><a href="/transactions"><i class="fas fa-exchange-alt"></i>Выдачи/возвраты</a></li>
+                    <li><a href="/supplies"><i class="fas fa-truck-loading"></i>Поставки</a></li>
                     {% endif %}
 
                     {% if role == 'Бухгалтер' or role == 'Администратор' %}
@@ -94,11 +95,12 @@
                     </div>
 
                     <div class="form-group">
-                        <label for="book-isbn">ISBN или код книги*</label>
-                        <input type="text" id="book-isbn" class="form-control" required>
-                        <button class="btn btn-secondary" style="margin-top: 10px; width: auto;" onclick="findBook()">
-                            Найти книгу
-                        </button>
+                        <label for="book-name-search">Поиск книги по названию*</label>
+                        <input type="text" id="book-name-search" class="form-control" placeholder="Введите название книги" oninput="searchAvailableBooks()" required>
+                        <select id="book-select" class="form-control" style="margin-top: 10px;" onchange="selectBookFromList()">
+                            <option value="">Выберите книгу из списка</option>
+                        </select>
+                        <small style="color:#6c757d;">Показываются только книги в наличии (quantity &gt; 0)</small>
                     </div>
 
                     <div class="info-card" id="book-info" style="display: none;">

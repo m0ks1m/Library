@@ -48,8 +48,14 @@ function showTab(tabId) {
         tab.classList.remove('active');
     });
 
-    document.getElementById(tabId).style.display = 'block';
-    event.currentTarget.classList.add('active');
+    const target = document.getElementById(tabId);
+    if (target) {
+        target.style.display = 'block';
+    }
+
+    if (typeof event !== 'undefined' && event.currentTarget) {
+        event.currentTarget.classList.add('active');
+    }
 }
 
 // Форматирование даты
