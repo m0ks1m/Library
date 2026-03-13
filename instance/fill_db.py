@@ -40,7 +40,12 @@ def fill():
             "system_settings",
         ]
 
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        existing_tables = {row[0] for row in cursor.fetchall()}
+
         for table_name in tables_in_delete_order:
+            if table_name not in existing_tables:
+                continue
             cursor.execute(f"DELETE FROM {table_name}")
             cursor.execute("DELETE FROM sqlite_sequence WHERE name = ?", (table_name,))
 
