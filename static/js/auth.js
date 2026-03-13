@@ -5,10 +5,8 @@ document.addEventListener("DOMContentLoaded", () => {
     form.addEventListener("submit", async (event) => {
         event.preventDefault();
 
-        const loginInput = document.getElementById("username");
-        const passwordInput = document.getElementById("password");
-        const login = (loginInput?.value || "").trim();
-        const password = passwordInput?.value || "";
+        const login = (form.login?.value || form.username?.value || "").trim();
+        const password = form.password.value;
 
         try {
             const response = await fetch("/api/login", {
