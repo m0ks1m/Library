@@ -10,9 +10,12 @@ function getReaderPayload() {
         lastName: document.getElementById('last-name').value.trim(),
         patronymic: document.getElementById('patronymic').value.trim(),
         birthdate: document.getElementById('birthdate').value,
-        phone: document.getElementById('phone').value.replace(/\D/g, ''),
+        phone: normalizePhone(document.getElementById('phone').value),
         email: document.getElementById('email').value.trim(),
-        address: document.getElementById('address').value.trim(),
+        city: document.getElementById('city').value.trim(),
+        street: document.getElementById('street').value.trim(),
+        house: document.getElementById('house').value.trim(),
+        apartment: document.getElementById('apartment').value.trim(),
         status: document.getElementById('reader-status').value
     };
 }
@@ -21,7 +24,7 @@ async function saveReader() {
     const readerId = document.getElementById('reader-id').value;
     const payload = getReaderPayload();
 
-    if (!payload.firstName || !payload.lastName || !payload.birthdate || !payload.phone || !payload.email || !payload.address) {
+    if (!payload.firstName || !payload.lastName || !payload.birthdate || !payload.phone || !payload.email || !payload.city || !payload.street || !payload.house) {
         alert('Заполните обязательные поля');
         return;
     }
@@ -49,7 +52,7 @@ async function saveReader() {
 function resetReaderForm() {
     document.getElementById('reader-id').value = '';
     document.getElementById('reader-form-title').textContent = 'Регистрация нового читателя';
-    ['first-name', 'last-name', 'patronymic', 'birthdate', 'phone', 'email', 'address'].forEach(id => document.getElementById(id).value = '');
+    ['first-name', 'last-name', 'patronymic', 'birthdate', 'phone', 'email', 'city', 'street', 'house', 'apartment'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('reader-status').value = 'ACTIVE';
 }
 
@@ -145,9 +148,12 @@ async function loadReaderToEdit(readerId) {
     document.getElementById('last-name').value = r.last_name || '';
     document.getElementById('patronymic').value = r.patronymic || '';
     document.getElementById('birthdate').value = r.date_birth || '';
-    document.getElementById('phone').value = r.phone || '';
+    document.getElementById('phone').value = formatPhone(r.phone || '');
     document.getElementById('email').value = r.email || '';
-    document.getElementById('address').value = r.address || '';
+    document.getElementById('city').value = r.city || '';
+    document.getElementById('street').value = r.street || '';
+    document.getElementById('house').value = r.house || '';
+    document.getElementById('apartment').value = r.apartment || '';
     document.getElementById('reader-status').value = r.status || 'ACTIVE';
 
     showTab('add-reader');
@@ -207,3 +213,44 @@ function resetReaderSearch() {
     document.getElementById('search-query').value = '';
     searchReaders();
 }
+
+
+function normalizePhone(value) {
+    const digits = (value || '').replace(/\D/g, '');
+    if (digits.length === 11 && (digits[0] === '7' || digits[0] === '8')) {
+        return '7' + digits.slice(1);
+    }
+    return digits;
+}
+
+function formatPhone(value) {
+    const digits = normalizePhone(value);
+    if (digits.length !== 11) return value;
+    return `+7 (${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7,9)}-${digits.slice(9,11)}`;
+}
+
+function attachMasks() {
+    const phoneInput = document.getElementById('phone');
+    const emailInput = document.getElementById('email');
+
+    phoneInput?.addEventListener('input', () => {
+        const digits = normalizePhone(phoneInput.value).slice(0, 11);
+        if (digits.length === 0) {
+            phoneInput.value = '';
+            return;
+        }
+        const body = digits.slice(1);
+        let out = '+7';
+        if (body.length > 0) out += ' (' + body.slice(0,3);
+        if (body.length >= 3) out += ') ' + body.slice(3,6);
+        if (body.length >= 6) out += '-' + body.slice(6,8);
+        if (body.length >= 8) out += '-' + body.slice(8,10);
+        phoneInput.value = out;
+    });
+
+    emailInput?.addEventListener('blur', () => {
+        emailInput.value = emailInput.value.trim().toLowerCase();
+    });
+}
+
+attachMasks();
