@@ -341,8 +341,11 @@ def load_user(user_id):
 @app.route('/login', methods=['GET', 'POST'])
 def login_page():
     if request.method == 'POST':
-        login_ = request.form['login']
-        password_ = request.form['password']
+        login_ = (request.form.get('login') or request.form.get('username') or '').strip()
+        password_ = request.form.get('password', '')
+        if not login_ or not password_:
+            flash("Неверный логин или пароль")
+            return render_template('login.html')
         user = get_user_by_login(login_)
         if user and user[2] == password_:
             user_obj = type('AnonUser', (UserMixin,), {
@@ -412,8 +415,8 @@ def logout():
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
-    data = request.get_json()
-    login_ = data.get('login')
+    data = request.get_json() or {}
+    login_ = (data.get('login') or data.get('username') or '').strip()
     password_ = data.get('password')
 
     user = get_user_by_login(login_)

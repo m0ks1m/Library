@@ -5,7 +5,7 @@ document.addEventListener("DOMContentLoaded", () => {
     form.addEventListener("submit", async (event) => {
         event.preventDefault();
 
-        const login = form.username.value.trim();
+        const login = (form.login?.value || form.username?.value || "").trim();
         const password = form.password.value;
 
         try {
