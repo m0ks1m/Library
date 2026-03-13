@@ -6,6 +6,7 @@ import sqlite3
 import os
 import csv
 from datetime import datetime
+import re
 from instance.fill_db import fill
 from config import DB_PATH
 
@@ -17,6 +18,23 @@ CORS(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login_page'
+
+def ensure_database_ready():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='employee'")
+        has_employee = cursor.fetchone() is not None
+    finally:
+        conn.close()
+
+    if not has_employee:
+        fill()
+
+    ensure_reader_schema()
+    ensure_supply_schema()
+
+
 
 # Wrapper for role management
 def role_required(*roles):
@@ -88,6 +106,258 @@ def ensure_reader_schema():
     conn.close()
 
 
+def ensure_supply_schema():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS supplier (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name VARCHAR(250) NOT NULL,
+            contact_person VARCHAR(250),
+            phone VARCHAR(50),
+            email VARCHAR(250),
+            city VARCHAR(100),
+            street VARCHAR(150),
+            house VARCHAR(30),
+            apartment VARCHAR(30),
+            comment VARCHAR(250),
+            is_active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.execute("PRAGMA table_info(supplier)")
+    supplier_columns = {row[1] for row in cursor.fetchall()}
+    migration_columns = {
+        'phone': "ALTER TABLE supplier ADD COLUMN phone VARCHAR(50)",
+        'email': "ALTER TABLE supplier ADD COLUMN email VARCHAR(250)",
+        'city': "ALTER TABLE supplier ADD COLUMN city VARCHAR(100)",
+        'street': "ALTER TABLE supplier ADD COLUMN street VARCHAR(150)",
+        'house': "ALTER TABLE supplier ADD COLUMN house VARCHAR(30)",
+        'apartment': "ALTER TABLE supplier ADD COLUMN apartment VARCHAR(30)",
+        'comment': "ALTER TABLE supplier ADD COLUMN comment VARCHAR(250)",
+        'is_active': "ALTER TABLE supplier ADD COLUMN is_active INTEGER DEFAULT 1",
+        'created_at': "ALTER TABLE supplier ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+    }
+    for column_name, sql in migration_columns.items():
+        if column_name not in supplier_columns:
+            cursor.execute(sql)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS supplier_contract (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contract_number VARCHAR(50) NOT NULL,
+            signed_at DATE NOT NULL,
+            supplier_id INTEGER NOT NULL,
+            start_date DATE,
+            end_date DATE,
+            amount_or_terms VARCHAR(250),
+            comment VARCHAR(250),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (supplier_id) REFERENCES supplier(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS supply_invoice (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_number VARCHAR(50) NOT NULL,
+            invoice_date DATE NOT NULL,
+            supplier_id INTEGER NOT NULL,
+            contract_id INTEGER,
+            responsible_person VARCHAR(120),
+            comment VARCHAR(250),
+            status VARCHAR(20) DEFAULT 'DRAFT',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (supplier_id) REFERENCES supplier(id),
+            FOREIGN KEY (contract_id) REFERENCES supplier_contract(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS supply_invoice_item (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_id INTEGER NOT NULL,
+            book_id INTEGER NOT NULL,
+            quantity INTEGER NOT NULL,
+            unit_price REAL DEFAULT 0,
+            FOREIGN KEY (invoice_id) REFERENCES supply_invoice(id),
+            FOREIGN KEY (book_id) REFERENCES book(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS acceptance_act (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            act_number VARCHAR(50) NOT NULL,
+            act_date DATE NOT NULL,
+            supplier_id INTEGER NOT NULL,
+            contract_id INTEGER,
+            responsible_person VARCHAR(120),
+            comment VARCHAR(250),
+            status VARCHAR(20) DEFAULT 'DRAFT',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (supplier_id) REFERENCES supplier(id),
+            FOREIGN KEY (contract_id) REFERENCES supplier_contract(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS acceptance_act_item (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            act_id INTEGER NOT NULL,
+            book_id INTEGER NOT NULL,
+            quantity INTEGER NOT NULL,
+            unit_price REAL DEFAULT 0,
+            FOREIGN KEY (act_id) REFERENCES acceptance_act(id),
+            FOREIGN KEY (book_id) REFERENCES book(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS book_copy (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            copy_uid VARCHAR(30) UNIQUE,
+            book_id INTEGER NOT NULL,
+            acceptance_act_id INTEGER,
+            status VARCHAR(20) DEFAULT 'available',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (book_id) REFERENCES book(id),
+            FOREIGN KEY (acceptance_act_id) REFERENCES acceptance_act(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS writeoff_act (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            act_number VARCHAR(50) NOT NULL,
+            act_date DATE NOT NULL,
+            basis VARCHAR(250),
+            responsible_person VARCHAR(120),
+            comment VARCHAR(250),
+            status VARCHAR(20) DEFAULT 'DRAFT',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS writeoff_act_item (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            act_id INTEGER NOT NULL,
+            book_copy_id INTEGER NOT NULL,
+            reason VARCHAR(40) NOT NULL,
+            FOREIGN KEY (act_id) REFERENCES writeoff_act(id),
+            FOREIGN KEY (book_copy_id) REFERENCES book_copy(id)
+        )
+    """)
+
+    cursor.execute("PRAGMA table_info(reader)")
+    reader_columns = {row[1] for row in cursor.fetchall()}
+    if 'city' not in reader_columns:
+        cursor.execute("ALTER TABLE reader ADD COLUMN city VARCHAR(100)")
+    if 'street' not in reader_columns:
+        cursor.execute("ALTER TABLE reader ADD COLUMN street VARCHAR(150)")
+    if 'house' not in reader_columns:
+        cursor.execute("ALTER TABLE reader ADD COLUMN house VARCHAR(30)")
+    if 'apartment' not in reader_columns:
+        cursor.execute("ALTER TABLE reader ADD COLUMN apartment VARCHAR(30)")
+    if 'pdn_consent' not in reader_columns:
+        cursor.execute("ALTER TABLE reader ADD COLUMN pdn_consent INTEGER DEFAULT 1")
+
+    cursor.execute("PRAGMA table_info(book)")
+    book_columns = {row[1] for row in cursor.fetchall()}
+    if 'description' not in book_columns:
+        cursor.execute("ALTER TABLE book ADD COLUMN description TEXT")
+
+    cursor.execute("PRAGMA table_info(given_book)")
+    given_columns = {row[1] for row in cursor.fetchall()}
+    if 'book_copy_id' not in given_columns:
+        cursor.execute("ALTER TABLE given_book ADD COLUMN book_copy_id INTEGER")
+    if 'return_status' not in given_columns:
+        cursor.execute("ALTER TABLE given_book ADD COLUMN return_status VARCHAR(20)")
+    if 'return_comment' not in given_columns:
+        cursor.execute("ALTER TABLE given_book ADD COLUMN return_comment VARCHAR(250)")
+    if 'overdue_days' not in given_columns:
+        cursor.execute("ALTER TABLE given_book ADD COLUMN overdue_days INTEGER DEFAULT 0")
+
+    cursor.execute("PRAGMA table_info(book_copy)")
+    copy_columns = {row[1] for row in cursor.fetchall()}
+    copy_migrations = {
+        'source_type': "ALTER TABLE book_copy ADD COLUMN source_type VARCHAR(30)",
+        'source_id': "ALTER TABLE book_copy ADD COLUMN source_id INTEGER",
+        'received_at': "ALTER TABLE book_copy ADD COLUMN received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        'note': "ALTER TABLE book_copy ADD COLUMN note VARCHAR(250)",
+    }
+    for col, sql in copy_migrations.items():
+        if col not in copy_columns:
+            cursor.execute(sql)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS book_copy_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            book_copy_id INTEGER NOT NULL,
+            old_status VARCHAR(20),
+            new_status VARCHAR(20) NOT NULL,
+            reason VARCHAR(50),
+            comment VARCHAR(250),
+            reader_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (book_copy_id) REFERENCES book_copy(id),
+            FOREIGN KEY (reader_id) REFERENCES reader(id)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def normalize_phone(phone):
+    digits = re.sub(r"\D", "", phone or "")
+    if len(digits) == 11 and digits[0] in ('7', '8'):
+        return '7' + digits[1:]
+    return digits
+
+
+COPY_STATUSES = {
+    'available',
+    'issued',
+    'reserved',
+    'overdue',
+    'damaged',
+    'lost',
+    'written_off',
+    'processing'
+}
+
+
+def log_copy_status(cursor, copy_id, old_status, new_status, reason='', comment='', reader_id=None):
+    cursor.execute(
+        """
+        INSERT INTO book_copy_history (book_copy_id, old_status, new_status, reason, comment, reader_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (copy_id, old_status, new_status, reason, comment, reader_id)
+    )
+
+
+
+
+def sync_overdue_copy_statuses(cursor):
+    cursor.execute(
+        """
+        SELECT gb.book_copy_id
+        FROM given_book gb
+        JOIN book_copy bc ON bc.id = gb.book_copy_id
+        WHERE gb.return_date_fact IS NULL
+          AND date(gb.return_date) < date('now')
+          AND bc.status = 'issued'
+        """
+    )
+    for (copy_id,) in cursor.fetchall():
+        cursor.execute("UPDATE book_copy SET status = 'overdue' WHERE id = ?", (copy_id,))
+        log_copy_status(cursor, copy_id, 'issued', 'overdue', 'auto_overdue')
+
 def log_reader_action(cursor, reader_id, action_type, details='', employee_id=None):
     cursor.execute(
         "INSERT INTO reader_action_history (reader_id, action_type, details, employee_id) VALUES (?, ?, ?, ?)",
@@ -143,6 +413,14 @@ def reports_page():
 def settings_page():
     return render_template('settings.html', role=current_user.role, system_settings={'system_settings': get_system_settings_data() or {}})
 
+# Страница поставщиков и поставок
+@app.route('/supplies')
+@role_required('Библиотекарь', 'Бухгалтер', 'Администратор')
+@login_required
+def supplies_page():
+    ensure_supply_schema()
+    return render_template('supplies.html', role=current_user.role)
+
 ###############################################################################################
 
 # API Routes
@@ -163,9 +441,13 @@ def load_user(user_id):
 
 @app.route('/login', methods=['GET', 'POST'])
 def login_page():
+    ensure_database_ready()
     if request.method == 'POST':
-        login_ = request.form['login']
-        password_ = request.form['password']
+        login_ = (request.form.get('login') or request.form.get('username') or '').strip()
+        password_ = request.form.get('password', '')
+        if not login_ or not password_:
+            flash("Неверный логин или пароль")
+            return render_template('login.html')
         user = get_user_by_login(login_)
         if user and user[2] == password_:
             user_obj = type('AnonUser', (UserMixin,), {
@@ -235,8 +517,9 @@ def logout():
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
-    data = request.get_json()
-    login_ = data.get('login')
+    ensure_database_ready()
+    data = request.get_json() or {}
+    login_ = (data.get('login') or data.get('username') or '').strip()
     password_ = data.get('password')
 
     user = get_user_by_login(login_)
@@ -253,53 +536,64 @@ def api_login():
 
 @app.route('/api/metrics')
 def get_metrics():
+    ensure_supply_schema()
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     try:
-        # 1. Книг в наличии (сумма quantity из таблицы book)
-        cursor.execute('SELECT SUM(quantity) FROM book')
-        available_books = cursor.fetchone()[0] or 0
-        
-        # 2. Книг на руках у читателей (сумма quantity из given_book где не возвращено)
-        cursor.execute('''
-            SELECT SUM(quantity) 
-            FROM given_book 
-            WHERE return_date_fact IS NULL
-        ''')
-        borrowed_books = cursor.fetchone()[0] or 0
-        
-        # 3. Всего книг в фонде (книги в наличии + выданные)
-        total_books = available_books + borrowed_books
-        
-        # # 4. Требуют списания (книги с quantity <= 0)
-        # cursor.execute('SELECT COUNT(*) FROM book WHERE quantity <= 0')
-        # to_write_off = cursor.fetchone()[0] or 0
-        
-        # # 5. Новые поступления (за последние 30 дней)
-        # cursor.execute('''
-        #     SELECT COUNT(*) 
-        #     FROM lading_bill 
-        #     WHERE date >= date('now', '-30 days')
-        # ''')
-        # new_arrivals = cursor.fetchone()[0] or 0
-        
+        sync_overdue_copy_statuses(cursor)
+        conn.commit()
+
+        cursor.execute('SELECT COUNT(*) FROM book')
+        book_cards_total = cursor.fetchone()[0] or 0
+
+        cursor.execute('SELECT COUNT(*) FROM book_copy')
+        copies_total = cursor.fetchone()[0] or 0
+
+        def count_by_status(status):
+            cursor.execute('SELECT COUNT(*) FROM book_copy WHERE status = ?', (status,))
+            return cursor.fetchone()[0] or 0
+
+        available_copies = count_by_status('available')
+        issued_copies = count_by_status('issued')
+        overdue_copies = count_by_status('overdue')
+        damaged_copies = count_by_status('damaged')
+        lost_copies = count_by_status('lost')
+        written_off_copies = count_by_status('written_off')
+
+        cursor.execute('SELECT COUNT(*) FROM reader')
+        readers_total = cursor.fetchone()[0] or 0
+        cursor.execute("SELECT COUNT(*) FROM reader WHERE date(registered_at) >= date('now', '-30 days')")
+        new_readers_30d = cursor.fetchone()[0] or 0
+        cursor.execute("SELECT COUNT(DISTINCT reader_id) FROM given_book WHERE return_date_fact IS NULL")
+        readers_with_active = cursor.fetchone()[0] or 0
+        cursor.execute("SELECT COUNT(DISTINCT reader_id) FROM given_book WHERE return_date_fact IS NULL AND date(return_date) < date('now')")
+        readers_with_overdue = cursor.fetchone()[0] or 0
+
         metrics = [
-            {"title": "Всего книг в фонде", "value": f"{total_books:,}", "class": "primary"},
-            {"title": "Книг в наличии", "value": f"{available_books:,}", "class": "success"},
-            {"title": "На руках у читателей", "value": f"{borrowed_books:,}", "class": "info"},
-            # {"title": "Требуют списания", "value": f"{to_write_off:,}", "class": "warning"},
-            # {"title": "Новые поступления", "value": f"{new_arrivals:,}", "class": "danger"}
+            {"title": "Карточек книг", "value": f"{book_cards_total:,}", "class": "primary"},
+            {"title": "Экземпляров всего", "value": f"{copies_total:,}", "class": "primary"},
+            {"title": "Доступных", "value": f"{available_copies:,}", "class": "success"},
+            {"title": "Выданных", "value": f"{issued_copies:,}", "class": "info"},
+            {"title": "Просроченных", "value": f"{overdue_copies:,}", "class": "warning"},
+            {"title": "Поврежденных", "value": f"{damaged_copies:,}", "class": "warning"},
+            {"title": "Утерянных", "value": f"{lost_copies:,}", "class": "danger"},
+            {"title": "Списанных", "value": f"{written_off_copies:,}", "class": "danger"},
+            {"title": "Читателей всего", "value": f"{readers_total:,}", "class": "primary"},
+            {"title": "Новых за 30 дней", "value": f"{new_readers_30d:,}", "class": "success"},
+            {"title": "Читатели с активными выдачами", "value": f"{readers_with_active:,}", "class": "info"},
+            {"title": "Читатели с просрочками", "value": f"{readers_with_overdue:,}", "class": "warning"},
         ]
-        
+
         return jsonify(metrics)
-        
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-        
+
     finally:
         conn.close()
-        
+
+
 @app.route('/api/readers', methods=['GET'])
 @login_required
 def list_readers():
@@ -319,6 +613,10 @@ def list_readers():
                 r.patronymic,
                 r.date_birth,
                 r.address,
+                r.city,
+                r.street,
+                r.house,
+                r.apartment,
                 r.email,
                 r.phone,
                 r.registered_at,
@@ -344,7 +642,7 @@ def list_readers():
             params.extend([query if query.isdigit() else -1, f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"])
 
         sql += """
-            GROUP BY r.id, r.ticket_number, r.first_name, r.last_name, r.patronymic, r.date_birth, r.address, r.email, r.phone, r.registered_at, r.status, r.penalty_points
+            GROUP BY r.id, r.ticket_number, r.first_name, r.last_name, r.patronymic, r.date_birth, r.address, r.city, r.street, r.house, r.apartment, r.email, r.phone, r.registered_at, r.status, r.penalty_points
             ORDER BY r.last_name, r.first_name
         """
 
@@ -362,7 +660,7 @@ def add_reader():
     ensure_reader_schema()
     try:
         data = request.get_json() or {}
-        required_fields = ['firstName', 'lastName', 'phone', 'address', 'email', 'birthdate']
+        required_fields = ['firstName', 'lastName', 'phone', 'city', 'street', 'house', 'email', 'birthdate']
         if not all(data.get(field) for field in required_fields):
             return jsonify({'error': 'Не заполнены обязательные поля'}), 400
 
@@ -370,16 +668,20 @@ def add_reader():
         cursor = conn.cursor()
 
         cursor.execute("""
-            INSERT INTO reader (first_name, last_name, patronymic, date_birth, phone, address, email, registered_at, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+            INSERT INTO reader (first_name, last_name, patronymic, date_birth, phone, address, city, street, house, apartment, email, registered_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
         """, (
             data['firstName'].strip(),
             data['lastName'].strip(),
             data.get('patronymic', '').strip(),
             data['birthdate'],
-            data['phone'],
-            data['address'].strip(),
-            data['email'].strip(),
+            normalize_phone(data['phone']),
+            f"г. {data['city'].strip()}, ул. {data['street'].strip()}, д. {data['house'].strip()}" + (f", кв. {data.get('apartment', '').strip()}" if data.get('apartment') else ''),
+            data['city'].strip(),
+            data['street'].strip(),
+            data['house'].strip(),
+            data.get('apartment', '').strip(),
+            data['email'].strip().lower(),
             data.get('status', 'ACTIVE')
         ))
 
@@ -411,6 +713,8 @@ def get_reader_details(reader_id):
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+        sync_overdue_copy_statuses(cursor)
+        conn.commit()
 
         cursor.execute("""
             SELECT
@@ -421,6 +725,10 @@ def get_reader_details(reader_id):
                 r.patronymic,
                 r.date_birth,
                 r.address,
+                r.city,
+                r.street,
+                r.house,
+                r.apartment,
                 r.email,
                 r.phone,
                 r.registered_at,
@@ -477,16 +785,20 @@ def update_reader(reader_id):
 
         cursor.execute("""
             UPDATE reader
-            SET first_name = ?, last_name = ?, patronymic = ?, date_birth = ?, phone = ?, address = ?, email = ?, status = ?
+            SET first_name = ?, last_name = ?, patronymic = ?, date_birth = ?, phone = ?, address = ?, city = ?, street = ?, house = ?, apartment = ?, email = ?, status = ?
             WHERE id = ?
         """, (
             data.get('firstName', '').strip(),
             data.get('lastName', '').strip(),
             data.get('patronymic', '').strip(),
             data.get('birthdate'),
-            data.get('phone'),
-            data.get('address', '').strip(),
-            data.get('email', '').strip(),
+            normalize_phone(data.get('phone')),
+            f"г. {data.get('city', '').strip()}, ул. {data.get('street', '').strip()}, д. {data.get('house', '').strip()}" + (f", кв. {data.get('apartment', '').strip()}" if data.get('apartment') else ''),
+            data.get('city', '').strip(),
+            data.get('street', '').strip(),
+            data.get('house', '').strip(),
+            data.get('apartment', '').strip(),
+            data.get('email', '').strip().lower(),
             data.get('status', 'ACTIVE'),
             reader_id
         ))
@@ -567,6 +879,417 @@ def change_reader_penalty(reader_id):
         return jsonify({'error': str(e)}), 500
 
 
+
+@app.route('/api/suppliers', methods=['GET'])
+@login_required
+def list_suppliers():
+    ensure_supply_schema()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM supplier ORDER BY id DESC")
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify({'success': True, 'suppliers': rows})
+
+
+@app.route('/api/suppliers', methods=['POST'])
+@login_required
+def create_supplier():
+    ensure_supply_schema()
+    data = request.get_json() or {}
+    if not data.get('name'):
+        return jsonify({'error': 'Название обязательно'}), 400
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO supplier (name, contact_person, phone, email, city, street, house, apartment, comment, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            data.get('name', '').strip(),
+            data.get('contact_person', '').strip(),
+            normalize_phone(data.get('phone', '')),
+            data.get('email', '').strip().lower(),
+            data.get('city', '').strip(),
+            data.get('street', '').strip(),
+            data.get('house', '').strip(),
+            data.get('apartment', '').strip(),
+            data.get('comment', '').strip(),
+            1 if data.get('is_active', True) else 0,
+        ),
+    )
+    supplier_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'supplier_id': supplier_id}), 201
+
+
+@app.route('/api/suppliers/<int:supplier_id>', methods=['PUT'])
+@login_required
+def update_supplier(supplier_id):
+    ensure_supply_schema()
+    data = request.get_json() or {}
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE supplier
+        SET name=?, contact_person=?, phone=?, email=?, city=?, street=?, house=?, apartment=?, comment=?, is_active=?
+        WHERE id=?
+        """,
+        (
+            data.get('name', '').strip(),
+            data.get('contact_person', '').strip(),
+            normalize_phone(data.get('phone', '')),
+            data.get('email', '').strip().lower(),
+            data.get('city', '').strip(),
+            data.get('street', '').strip(),
+            data.get('house', '').strip(),
+            data.get('apartment', '').strip(),
+            data.get('comment', '').strip(),
+            1 if data.get('is_active', True) else 0,
+            supplier_id,
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+
+@app.route('/api/suppliers/<int:supplier_id>', methods=['DELETE'])
+@login_required
+def delete_supplier(supplier_id):
+    ensure_supply_schema()
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE supplier SET is_active = 0 WHERE id = ?", (supplier_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+
+@app.route('/api/contracts', methods=['GET', 'POST'])
+@login_required
+def contracts_handler():
+    ensure_supply_schema()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    if request.method == 'GET':
+        cursor.execute(
+            """
+            SELECT c.*, s.name AS supplier_name
+            FROM supplier_contract c
+            JOIN supplier s ON s.id = c.supplier_id
+            ORDER BY c.id DESC
+            """
+        )
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'contracts': rows})
+
+    data = request.get_json() or {}
+    cursor.execute(
+        """
+        INSERT INTO supplier_contract (contract_number, signed_at, supplier_id, start_date, end_date, amount_or_terms, comment)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            data.get('contract_number'),
+            data.get('signed_at'),
+            data.get('supplier_id'),
+            data.get('start_date'),
+            data.get('end_date'),
+            data.get('amount_or_terms', ''),
+            data.get('comment', ''),
+        ),
+    )
+    new_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'contract_id': new_id}), 201
+
+
+def _calc_total(items):
+    return round(sum((int(i.get('quantity', 0)) * float(i.get('unit_price', 0) or 0)) for i in items), 2)
+
+
+@app.route('/api/invoices', methods=['GET', 'POST'])
+@login_required
+def invoices_handler():
+    ensure_supply_schema()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    if request.method == 'GET':
+        cursor.execute(
+            """
+            SELECT i.*, s.name AS supplier_name, c.contract_number,
+                   COALESCE(SUM(ii.quantity * ii.unit_price), 0) AS total
+            FROM supply_invoice i
+            JOIN supplier s ON s.id = i.supplier_id
+            LEFT JOIN supplier_contract c ON c.id = i.contract_id
+            LEFT JOIN supply_invoice_item ii ON ii.invoice_id = i.id
+            GROUP BY i.id
+            ORDER BY i.id DESC
+            """
+        )
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'invoices': rows})
+
+    data = request.get_json() or {}
+    items = data.get('items', [])
+    cursor.execute(
+        """
+        INSERT INTO supply_invoice (invoice_number, invoice_date, supplier_id, contract_id, responsible_person, comment)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            data.get('invoice_number'),
+            data.get('invoice_date'),
+            data.get('supplier_id'),
+            data.get('contract_id'),
+            data.get('responsible_person', ''),
+            data.get('comment', ''),
+        ),
+    )
+    invoice_id = cursor.lastrowid
+    for item in items:
+        cursor.execute(
+            "INSERT INTO supply_invoice_item (invoice_id, book_id, quantity, unit_price) VALUES (?, ?, ?, ?)",
+            (invoice_id, item.get('book_id'), item.get('quantity'), item.get('unit_price', 0)),
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'invoice_id': invoice_id, 'total': _calc_total(items)}), 201
+
+
+@app.route('/api/acceptance-acts', methods=['GET', 'POST'])
+@login_required
+def acceptance_acts_handler():
+    ensure_supply_schema()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    if request.method == 'GET':
+        cursor.execute(
+            """
+            SELECT a.*, s.name AS supplier_name, c.contract_number,
+                   COALESCE(SUM(ai.quantity * ai.unit_price), 0) AS total
+            FROM acceptance_act a
+            JOIN supplier s ON s.id = a.supplier_id
+            LEFT JOIN supplier_contract c ON c.id = a.contract_id
+            LEFT JOIN acceptance_act_item ai ON ai.act_id = a.id
+            GROUP BY a.id
+            ORDER BY a.id DESC
+            """
+        )
+        acts = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'acts': acts})
+
+    data = request.get_json() or {}
+    items = data.get('items', [])
+    cursor.execute(
+        """
+        INSERT INTO acceptance_act (act_number, act_date, supplier_id, contract_id, responsible_person, comment)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            data.get('act_number'),
+            data.get('act_date'),
+            data.get('supplier_id'),
+            data.get('contract_id'),
+            data.get('responsible_person', ''),
+            data.get('comment', ''),
+        ),
+    )
+    act_id = cursor.lastrowid
+
+    for item in items:
+        q = int(item.get('quantity', 0))
+        p = float(item.get('unit_price', 0) or 0)
+        book_id = item.get('book_id')
+        cursor.execute(
+            "INSERT INTO acceptance_act_item (act_id, book_id, quantity, unit_price) VALUES (?, ?, ?, ?)",
+            (act_id, book_id, q, p),
+        )
+        cursor.execute("UPDATE book SET quantity = quantity + ? WHERE id = ?", (q, book_id))
+        for _ in range(q):
+            uid = f"CP-{act_id}-{book_id}-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+            cursor.execute(
+                "INSERT INTO book_copy (copy_uid, book_id, acceptance_act_id, status, source_type, source_id, received_at) VALUES (?, ?, ?, 'available', 'acceptance_act', ?, CURRENT_TIMESTAMP)",
+                (uid, book_id, act_id, act_id),
+            )
+
+    cursor.execute("UPDATE acceptance_act SET status = 'CONFIRMED' WHERE id = ?", (act_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'act_id': act_id, 'total': _calc_total(items)}), 201
+
+
+@app.route('/api/acceptance-acts/<int:act_id>/print', methods=['GET'])
+@login_required
+def print_acceptance_act(act_id):
+    ensure_supply_schema()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT a.*, s.name AS supplier_name, c.contract_number
+        FROM acceptance_act a
+        JOIN supplier s ON s.id = a.supplier_id
+        LEFT JOIN supplier_contract c ON c.id = a.contract_id
+        WHERE a.id = ?
+        """,
+        (act_id,),
+    )
+    act = cursor.fetchone()
+    if not act:
+        conn.close()
+        return jsonify({'error': 'Акт не найден'}), 404
+    cursor.execute(
+        """
+        SELECT ai.quantity, ai.unit_price, b.name AS book_name
+        FROM acceptance_act_item ai
+        JOIN book b ON b.id = ai.book_id
+        WHERE ai.act_id = ?
+        """,
+        (act_id,),
+    )
+    items = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify({'success': True, 'act': dict(act), 'items': items, 'total': _calc_total(items)})
+
+
+@app.route('/api/writeoff-acts', methods=['GET', 'POST'])
+@login_required
+def writeoff_acts_handler():
+    ensure_supply_schema()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    if request.method == 'GET':
+        cursor.execute(
+            """
+            SELECT w.*, COUNT(wi.id) AS items_count
+            FROM writeoff_act w
+            LEFT JOIN writeoff_act_item wi ON wi.act_id = w.id
+            GROUP BY w.id
+            ORDER BY w.id DESC
+            """
+        )
+        acts = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'acts': acts})
+
+    data = request.get_json() or {}
+    items = data.get('items', [])
+    allowed = {'износ', 'утеря', 'повреждение', 'устаревание', 'другое'}
+
+    cursor.execute(
+        """
+        INSERT INTO writeoff_act (act_number, act_date, basis, responsible_person, comment, status)
+        VALUES (?, ?, ?, ?, ?, 'CONFIRMED')
+        """,
+        (
+            data.get('act_number'),
+            data.get('act_date'),
+            data.get('basis', ''),
+            data.get('responsible_person', ''),
+            data.get('comment', ''),
+        ),
+    )
+    act_id = cursor.lastrowid
+
+    for item in items:
+        copy_id = item.get('book_copy_id')
+        reason = (item.get('reason') or '').strip().lower()
+        if reason not in allowed:
+            reason = 'другое'
+        cursor.execute(
+            "SELECT book_id, status FROM book_copy WHERE id = ?",
+            (copy_id,),
+        )
+        copy_row = cursor.fetchone()
+        if not copy_row:
+            continue
+        book_id, old_status = copy_row
+        cursor.execute(
+            "INSERT INTO writeoff_act_item (act_id, book_copy_id, reason) VALUES (?, ?, ?)",
+            (act_id, copy_id, reason),
+        )
+        cursor.execute("UPDATE book_copy SET status = 'written_off' WHERE id = ?", (copy_id,))
+        if old_status == 'available':
+            cursor.execute("UPDATE book SET quantity = MAX(0, quantity - 1) WHERE id = ?", (book_id,))
+        log_copy_status(cursor, copy_id, old_status, 'written_off', 'writeoff_act', reason)
+
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'act_id': act_id}), 201
+
+
+@app.route('/api/book-copies', methods=['GET'])
+@login_required
+def list_book_copies():
+    ensure_supply_schema()
+    status = request.args.get('status')
+    uid = (request.args.get('uid') or '').strip()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    sql = """
+        SELECT bc.id, bc.copy_uid, bc.status, bc.received_at, bc.source_type, bc.source_id, bc.note,
+               b.name AS book_name,
+               (a.last_name || ' ' || a.first_name || COALESCE(' ' || a.patronymic, '')) AS author
+        FROM book_copy bc
+        JOIN book b ON b.id = bc.book_id
+        JOIN author a ON a.id = b.author_id
+        WHERE 1=1
+    """
+    params = []
+    if status:
+        sql += " AND bc.status = ?"
+        params.append(status)
+    if uid:
+        sql += " AND bc.copy_uid LIKE ?"
+        params.append(f"%{uid}%")
+    sql += " ORDER BY bc.id DESC LIMIT 500"
+    cursor.execute(sql, params)
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify({'success': True, 'copies': rows})
+
+
+@app.route('/api/book-copies/<int:copy_id>/history', methods=['GET'])
+@login_required
+def get_book_copy_history(copy_id):
+    ensure_supply_schema()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT bch.*, (r.last_name || ' ' || r.first_name || COALESCE(' ' || r.patronymic, '')) AS reader_name
+        FROM book_copy_history bch
+        LEFT JOIN reader r ON r.id = bch.reader_id
+        WHERE bch.book_copy_id = ?
+        ORDER BY bch.id DESC
+        """,
+        (copy_id,)
+    )
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify({'success': True, 'history': rows})
+
+
 @app.route('/api/books/all', methods=['GET'])
 def get_all_books():
     try:
@@ -618,7 +1341,7 @@ def get_all_books():
 @app.route('/api/reader/by-phone', methods=['GET'])
 def get_reader_by_phone():
     try:
-        phone = request.args.get('phone')
+        phone = normalize_phone(request.args.get('phone'))
         if not phone:
             return jsonify({"error": "Не указан телефон"}), 400
         
@@ -771,43 +1494,65 @@ def add_book():
 # Получение информации о книге по ISBN или ID
 @app.route('/api/book/by-identifier', methods=['GET'])
 def get_book_by_identifier():
+    ensure_supply_schema()
     try:
         identifier = request.args.get('identifier')
         if not identifier:
             return jsonify({"error": "Не указан идентификатор"}), 400
-        
+
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT b.id, b.name, b.year, b.isbn, b.quantity, 
+        sync_overdue_copy_statuses(cursor)
+        conn.commit()
+
+        cursor.execute(
+            """
+            SELECT b.id, b.name, b.year, b.isbn, b.quantity,
                    a.first_name, a.last_name, a.patronymic,
-                   g.name as genre, b.publishing_house
+                   g.name as genre, b.publishing_house, b.description
             FROM book b
             JOIN author a ON b.author_id = a.id
             JOIN genre g ON b.genre_id = g.id
             WHERE b.isbn = ? OR b.id = ?
-        ''', (identifier, identifier))
-        
+            LIMIT 1
+            """,
+            (identifier, identifier)
+        )
+
         book = cursor.fetchone()
-        conn.close()
-        
         if not book:
+            conn.close()
             return jsonify({"error": "Книга не найдена"}), 404
-        
+
+        cursor.execute(
+            """
+            SELECT id, copy_uid, status, received_at, source_type, source_id, note
+            FROM book_copy
+            WHERE book_id = ?
+            ORDER BY id DESC
+            """,
+            (book['id'],)
+        )
+        copies = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+
         return jsonify({
             "book": {
-                "id": book[0],
-                "title": book[1],
-                "year": book[2],
-                "isbn": book[3],
-                "quantity": book[4],
-                "author": ' '.join(filter(None, [book[5], book[6], book[7]])),
-                "genre": book[8],
-                "publishing_house": book[9],
-            }
+                "id": book['id'],
+                "title": book['name'],
+                "year": book['year'],
+                "isbn": book['isbn'],
+                "quantity": book['quantity'],
+                "author": ' '.join(filter(None, [book['first_name'], book['last_name'], book['patronymic']])),
+                "genre": book['genre'],
+                "publishing_house": book['publishing_house'],
+                "description": book['description'],
+            },
+            "available_copies": [c for c in copies if c['status'] == 'available'],
+            "copies": copies,
         }), 200
-        
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1143,183 +1888,218 @@ def download_report(filename):
 
 @app.route('/api/book/issue', methods=['POST'])
 def issue_book():
+    ensure_supply_schema()
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         required_fields = ['reader_id', 'book_id', 'issue_date', 'return_date']
-        
-        if not all(field in data for field in required_fields):
+
+        if not all(field in data and data[field] for field in required_fields):
             return jsonify({"error": "Не все обязательные поля заполнены"}), 400
-        
+
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        
-        # Проверяем доступность книги (количество в общем каталоге)
-        cursor.execute('SELECT quantity FROM book WHERE id = ?', (data['book_id'],))
+
+        cursor.execute("SELECT quantity FROM book WHERE id = ?", (data['book_id'],))
         book = cursor.fetchone()
-        
         if not book or book[0] <= 0:
             conn.close()
             return jsonify({"error": "Книга недоступна для выдачи"}), 400
-        
-        # Проверяем, есть ли уже выданные экземпляры этого reader_id и book_id
-        cursor.execute('''
-            SELECT id, quantity FROM given_book 
-            WHERE reader_id = ? AND book_id = ? AND return_date >= ?
-        ''', (data['reader_id'], data['book_id'], data['issue_date']))
-        
-        given_book = cursor.fetchone()
-        
-        # Создаем новую запись о выдаче
-        cursor.execute('''
-            INSERT INTO given_book
-            (reader_id, book_id, given_date, return_date, employee_id, quantity) 
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (
-            data['reader_id'], 
-            data['book_id'], 
-            data['issue_date'], 
-            data['return_date'], 
-            current_user.id,
-            1
-        ))
 
-        
-        # Уменьшаем количество доступных книг в общем каталоге
-        cursor.execute('''
-            UPDATE book SET quantity = quantity - 1 
-            WHERE id = ?
-        ''', (data['book_id'],))
-        
+        copy_id = data.get('book_copy_id')
+        if copy_id:
+            cursor.execute("SELECT id, status FROM book_copy WHERE id = ? AND book_id = ?", (copy_id, data['book_id']))
+            copy_row = cursor.fetchone()
+            if not copy_row:
+                conn.close()
+                return jsonify({"error": "Экземпляр книги не найден"}), 404
+            if copy_row[1] != 'available':
+                conn.close()
+                return jsonify({"error": "Экземпляр недоступен для выдачи"}), 400
+        else:
+            cursor.execute(
+                """
+                SELECT id, status FROM book_copy
+                WHERE book_id = ? AND status = 'available'
+                ORDER BY id ASC LIMIT 1
+                """,
+                (data['book_id'],)
+            )
+            copy_row = cursor.fetchone()
+            if not copy_row:
+                conn.close()
+                return jsonify({"error": "Нет доступных экземпляров книги"}), 400
+            copy_id = copy_row[0]
+
+        cursor.execute(
+            """
+            INSERT INTO given_book
+            (reader_id, book_id, book_copy_id, given_date, return_date, employee_id, quantity)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                data['reader_id'],
+                data['book_id'],
+                copy_id,
+                data['issue_date'],
+                data['return_date'],
+                current_user.id,
+                1
+            )
+        )
+
+        old_status = copy_row[1]
+        cursor.execute("UPDATE book_copy SET status = 'issued' WHERE id = ?", (copy_id,))
+        log_copy_status(cursor, copy_id, old_status, 'issued', 'issue', data.get('issue_notes', ''), data['reader_id'])
+
+        cursor.execute('UPDATE book SET quantity = quantity - 1 WHERE id = ?', (data['book_id'],))
+
         conn.commit()
         conn.close()
-        
-        return jsonify({"success": True}), 200
-        
+
+        return jsonify({"success": True, "book_copy_id": copy_id}), 200
+
     except Exception as e:
         if 'conn' in locals():
             conn.rollback()
             conn.close()
         return jsonify({"error": str(e)}), 500
-    
-    
-# Поиск книги для возврата
+
+
 @app.route('/api/book/find-for-return', methods=['GET'])
 def find_book_for_return():
+    ensure_supply_schema()
     try:
         reader_id = request.args.get('reader_id')
         isbn = request.args.get('isbn')
-        
+
         if not reader_id or not isbn:
             return jsonify({"error": "Необходимо указать ID читателя и ISBN"}), 400
-        
+
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        
-        # Ищем активную выдачу по читателю и ISBN
-        cursor.execute('''
-            SELECT gb.id as record_id, 
-                b.name as book_title, 
-                a.last_name || ' ' || a.first_name || COALESCE(' ' || a.patronymic, '') as book_author,
-                gb.given_date as issue_date,
-                gb.return_date as planned_return_date
+        sync_overdue_copy_statuses(cursor)
+        conn.commit()
+
+        cursor.execute(
+            """
+            SELECT gb.id as record_id,
+                   b.name as book_title,
+                   a.last_name || ' ' || a.first_name || COALESCE(' ' || a.patronymic, '') as book_author,
+                   gb.given_date as issue_date,
+                   gb.return_date as planned_return_date,
+                   gb.book_copy_id,
+                   bc.copy_uid,
+                   bc.status as copy_status
             FROM given_book gb
             JOIN book b ON gb.book_id = b.id
             JOIN author a ON b.author_id = a.id
-            WHERE gb.reader_id = ? 
-            AND b.isbn = ?
-            AND gb.return_date_fact IS NULL
+            LEFT JOIN book_copy bc ON bc.id = gb.book_copy_id
+            WHERE gb.reader_id = ?
+              AND b.isbn = ?
+              AND gb.return_date_fact IS NULL
+            ORDER BY gb.id DESC
             LIMIT 1
-        ''', (reader_id, isbn))
-        
+            """,
+            (reader_id, isbn)
+        )
+
         issue_record = cursor.fetchone()
         conn.close()
-        
+
         if not issue_record:
             return jsonify({"error": "Активная выдача не найдена"}), 404
-        
-        # Преобразуем результат в словарь
-        result = {
-            "record_id": issue_record[0],
-            "book_title": issue_record[1],
-            "book_author": issue_record[2],
-            "issue_date": issue_record[3],
-            "planned_return_date": issue_record[4]
-        }
-        
-        return jsonify(result)
-        
+
+        return jsonify(dict(issue_record))
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Обработка возврата книги
+
 @app.route('/api/book/return', methods=['POST'])
 def return_book():
     ensure_reader_schema()
+    ensure_supply_schema()
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         required_fields = ['record_id', 'actual_return_date']
-        
-        if not all(field in data for field in required_fields):
+
+        if not all(field in data and data[field] for field in required_fields):
             return jsonify({"error": "Не все обязательные поля заполнены"}), 400
-        
+
+        final_status = data.get('final_status', 'available')
+        if final_status not in {'available', 'damaged', 'lost', 'written_off'}:
+            return jsonify({"error": "Недопустимый итоговый статус экземпляра"}), 400
+
+        return_comment = (data.get('return_comment') or '').strip()
+        penalty_delta = int(data.get('penalty_delta') or 0)
+
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        
-        # Получаем полную информацию о выдаче
-        cursor.execute('''
-            SELECT gb.book_id, gb.quantity, gb.reader_id, gb.return_date,
+
+        cursor.execute(
+            """
+            SELECT gb.book_id, gb.quantity, gb.reader_id, gb.return_date, gb.book_copy_id,
                    (SELECT late_return_penalty FROM system_settings WHERE id = 1) as penalty
             FROM given_book gb
             WHERE gb.id = ? AND gb.return_date_fact IS NULL
-        ''', (data['record_id'],))
-        
+            """,
+            (data['record_id'],)
+        )
+
         issue_record = cursor.fetchone()
-        
         if not issue_record:
             conn.close()
             return jsonify({"error": "Выдача не найдена или книга уже возвращена"}), 400
-        
-        book_id, quantity, reader_id, planned_return_date, penalty_points = issue_record
+
+        book_id, quantity, reader_id, planned_return_date, book_copy_id, overdue_penalty = issue_record
         actual_return_date = data['actual_return_date']
-        
-        # Проверяем просрочку
+
+        overdue_days = 0
         if actual_return_date > planned_return_date:
-            # Начисляем штрафные баллы
-            cursor.execute('''
-                UPDATE reader
-                SET penalty_points = penalty_points + ?
-                WHERE id = ?
-            ''', (penalty_points, reader_id))
-            log_penalty_change(cursor, reader_id, penalty_points, 'overdue', 'Автоматическое начисление за просрочку возврата', current_user.id)
-            log_reader_action(cursor, reader_id, 'PENALTY_ADD', f'Автоматически начислено {penalty_points} баллов за просрочку', current_user.id)
-        
-        # Обновляем запись о выдаче
-        cursor.execute('''
-            UPDATE given_book 
-            SET return_date_fact = ?
+            overdue_days = (datetime.fromisoformat(actual_return_date) - datetime.fromisoformat(planned_return_date)).days
+            cursor.execute('UPDATE reader SET penalty_points = penalty_points + ? WHERE id = ?', (overdue_penalty, reader_id))
+            log_penalty_change(cursor, reader_id, overdue_penalty, 'overdue', 'Автоматическое начисление за просрочку возврата', current_user.id)
+            log_reader_action(cursor, reader_id, 'PENALTY_ADD', f'Автоматически начислено {overdue_penalty} баллов за просрочку', current_user.id)
+
+        if penalty_delta:
+            cursor.execute('UPDATE reader SET penalty_points = MAX(0, penalty_points + ?) WHERE id = ?', (penalty_delta, reader_id))
+            reason = 'book_damage' if final_status == 'damaged' else 'book_loss' if final_status == 'lost' else 'other'
+            log_penalty_change(cursor, reader_id, penalty_delta, reason, return_comment or 'Начислено при возврате', current_user.id)
+            action_type = 'PENALTY_ADD' if penalty_delta > 0 else 'PENALTY_DEDUCT'
+            log_reader_action(cursor, reader_id, action_type, f'Изменение баллов при возврате: {penalty_delta}', current_user.id)
+
+        cursor.execute(
+            """
+            UPDATE given_book
+            SET return_date_fact = ?, return_status = ?, return_comment = ?, overdue_days = ?
             WHERE id = ?
-        ''', (actual_return_date, data['record_id']))
-        
-        # Увеличиваем количество доступных книг
-        cursor.execute('''
-            UPDATE book 
-            SET quantity = quantity + ? 
-            WHERE id = ?
-        ''', (quantity, book_id))
-        
+            """,
+            (actual_return_date, final_status, return_comment, overdue_days, data['record_id'])
+        )
+
+        if final_status == 'available':
+            cursor.execute('UPDATE book SET quantity = quantity + ? WHERE id = ?', (quantity, book_id))
+
+        if book_copy_id:
+            cursor.execute("SELECT status FROM book_copy WHERE id = ?", (book_copy_id,))
+            old = cursor.fetchone()
+            old_status = old[0] if old else 'issued'
+            cursor.execute('UPDATE book_copy SET status = ?, note = ? WHERE id = ?', (final_status, return_comment, book_copy_id))
+            log_copy_status(cursor, book_copy_id, old_status, final_status, 'return', return_comment, reader_id)
+
         conn.commit()
         conn.close()
-        
-        return jsonify({"success": True})
-        
+
+        return jsonify({"success": True, "overdue_days": overdue_days})
+
     except Exception as e:
         if 'conn' in locals():
             conn.rollback()
             conn.close()
         return jsonify({"error": str(e)}), 500
-    
-    
-    
+
+
 def get_system_settings_data():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -1384,6 +2164,7 @@ def load_system_settings():
     
     
 def get_user_by_login(login):
+    ensure_database_ready()
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id, login, password, position, first_name, last_name FROM employee WHERE login = ?", (login,))
@@ -1392,6 +2173,7 @@ def get_user_by_login(login):
     return row  # (id, login, password, position)
 
 def get_user_by_id(user_id):
+    ensure_database_ready()
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id, login, password, position, first_name, last_name FROM employee WHERE id = ?", (user_id,))
@@ -1403,7 +2185,5 @@ def get_user_by_id(user_id):
 
 
 if __name__ == '__main__':
-    if not os.path.exists(DB_PATH):
-        fill()
-    ensure_reader_schema()
+    ensure_database_ready()
     app.run(debug=True)

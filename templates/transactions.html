@@ -31,6 +31,7 @@
                     {% endif %}
 
                     {% if role == 'Бухгалтер' or role == 'Администратор' %}
+                    <li><a href="/supplies"><i class="fas fa-truck"></i>Поставки</a></li>
                     <li><a href="/reports"><i class="fas fa-chart-bar"></i>Отчеты</a></li>
                     {% endif %}
 
@@ -121,6 +122,11 @@
                                 <div class="info-value" id="book-publishing_house">Не указан</div>
                             </div>
                         </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="issue-book-copy">Экземпляр книги*</label>
+                        <select id="issue-book-copy" class="form-control"></select>
                     </div>
 
                     <div class="form-row">
@@ -221,8 +227,24 @@
                         <input type="date" id="actual-return-date" class="form-control" required>
                     </div>
 
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="return-final-status">Итоговый статус экземпляра</label>
+                            <select id="return-final-status" class="form-control">
+                                <option value="available">Доступна</option>
+                                <option value="damaged">Повреждена</option>
+                                <option value="lost">Утеряна</option>
+                                <option value="written_off">Списана</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="return-penalty-delta">Изменение штрафных баллов</label>
+                            <input type="number" id="return-penalty-delta" class="form-control" value="0">
+                        </div>
+                    </div>
+
                     <div class="form-group">
-                        <label for="return-notes">Примечания</label>
+                        <label for="return-notes">Комментарий к возврату</label>
                         <textarea id="return-notes" class="form-control" rows="3"></textarea>
                     </div>
 
