@@ -19,6 +19,23 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login_page'
 
+def ensure_database_ready():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='employee'")
+        has_employee = cursor.fetchone() is not None
+    finally:
+        conn.close()
+
+    if not has_employee:
+        fill()
+
+    ensure_reader_schema()
+    ensure_supply_schema()
+
+
+
 # Wrapper for role management
 def role_required(*roles):
     def wrapper(f):
@@ -340,6 +357,7 @@ def load_user(user_id):
 
 @app.route('/login', methods=['GET', 'POST'])
 def login_page():
+    ensure_database_ready()
     if request.method == 'POST':
         login_ = (request.form.get('login') or request.form.get('username') or '').strip()
         password_ = request.form.get('password', '')
@@ -2021,6 +2039,7 @@ def load_system_settings():
     
     
 def get_user_by_login(login):
+    ensure_database_ready()
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id, login, password, position, first_name, last_name FROM employee WHERE login = ?", (login,))
@@ -2029,6 +2048,7 @@ def get_user_by_login(login):
     return row  # (id, login, password, position)
 
 def get_user_by_id(user_id):
+    ensure_database_ready()
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id, login, password, position, first_name, last_name FROM employee WHERE id = ?", (user_id,))
