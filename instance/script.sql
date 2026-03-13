@@ -229,10 +229,6 @@ CREATE TABLE IF NOT EXISTS `book_copy` (
   `book_id` INTEGER NOT NULL,
   `acceptance_act_id` INTEGER,
   `status` VARCHAR(20) DEFAULT 'available',
-  `source_type` VARCHAR(30),
-  `source_id` INTEGER,
-  `received_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  `note` VARCHAR(250),
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (`book_id`) REFERENCES `book` (`id`),
   FOREIGN KEY (`acceptance_act_id`) REFERENCES `acceptance_act` (`id`)
@@ -256,18 +252,4 @@ CREATE TABLE IF NOT EXISTS `writeoff_act_item` (
   `reason` VARCHAR(40) NOT NULL,
   FOREIGN KEY (`act_id`) REFERENCES `writeoff_act` (`id`),
   FOREIGN KEY (`book_copy_id`) REFERENCES `book_copy` (`id`)
-);
-
-
-CREATE TABLE IF NOT EXISTS `book_copy_history` (
-  `id` INTEGER PRIMARY KEY AUTOINCREMENT,
-  `book_copy_id` INTEGER NOT NULL,
-  `old_status` VARCHAR(20),
-  `new_status` VARCHAR(20) NOT NULL,
-  `reason` VARCHAR(50),
-  `comment` VARCHAR(250),
-  `reader_id` INTEGER,
-  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (`book_copy_id`) REFERENCES `book_copy` (`id`),
-  FOREIGN KEY (`reader_id`) REFERENCES `reader` (`id`)
 );

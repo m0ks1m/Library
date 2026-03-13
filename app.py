@@ -245,51 +245,6 @@ def ensure_supply_schema():
         cursor.execute("ALTER TABLE reader ADD COLUMN house VARCHAR(30)")
     if 'apartment' not in reader_columns:
         cursor.execute("ALTER TABLE reader ADD COLUMN apartment VARCHAR(30)")
-    if 'pdn_consent' not in reader_columns:
-        cursor.execute("ALTER TABLE reader ADD COLUMN pdn_consent INTEGER DEFAULT 1")
-
-    cursor.execute("PRAGMA table_info(book)")
-    book_columns = {row[1] for row in cursor.fetchall()}
-    if 'description' not in book_columns:
-        cursor.execute("ALTER TABLE book ADD COLUMN description TEXT")
-
-    cursor.execute("PRAGMA table_info(given_book)")
-    given_columns = {row[1] for row in cursor.fetchall()}
-    if 'book_copy_id' not in given_columns:
-        cursor.execute("ALTER TABLE given_book ADD COLUMN book_copy_id INTEGER")
-    if 'return_status' not in given_columns:
-        cursor.execute("ALTER TABLE given_book ADD COLUMN return_status VARCHAR(20)")
-    if 'return_comment' not in given_columns:
-        cursor.execute("ALTER TABLE given_book ADD COLUMN return_comment VARCHAR(250)")
-    if 'overdue_days' not in given_columns:
-        cursor.execute("ALTER TABLE given_book ADD COLUMN overdue_days INTEGER DEFAULT 0")
-
-    cursor.execute("PRAGMA table_info(book_copy)")
-    copy_columns = {row[1] for row in cursor.fetchall()}
-    copy_migrations = {
-        'source_type': "ALTER TABLE book_copy ADD COLUMN source_type VARCHAR(30)",
-        'source_id': "ALTER TABLE book_copy ADD COLUMN source_id INTEGER",
-        'received_at': "ALTER TABLE book_copy ADD COLUMN received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-        'note': "ALTER TABLE book_copy ADD COLUMN note VARCHAR(250)",
-    }
-    for col, sql in copy_migrations.items():
-        if col not in copy_columns:
-            cursor.execute(sql)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS book_copy_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            book_copy_id INTEGER NOT NULL,
-            old_status VARCHAR(20),
-            new_status VARCHAR(20) NOT NULL,
-            reason VARCHAR(50),
-            comment VARCHAR(250),
-            reader_id INTEGER,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (book_copy_id) REFERENCES book_copy(id),
-            FOREIGN KEY (reader_id) REFERENCES reader(id)
-        )
-    """)
 
     conn.commit()
     conn.close()
@@ -301,45 +256,6 @@ def normalize_phone(phone):
         return '7' + digits[1:]
     return digits
 
-
-COPY_STATUSES = {
-    'available',
-    'issued',
-    'reserved',
-    'overdue',
-    'damaged',
-    'lost',
-    'written_off',
-    'processing'
-}
-
-
-def log_copy_status(cursor, copy_id, old_status, new_status, reason='', comment='', reader_id=None):
-    cursor.execute(
-        """
-        INSERT INTO book_copy_history (book_copy_id, old_status, new_status, reason, comment, reader_id)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (copy_id, old_status, new_status, reason, comment, reader_id)
-    )
-
-
-
-
-def sync_overdue_copy_statuses(cursor):
-    cursor.execute(
-        """
-        SELECT gb.book_copy_id
-        FROM given_book gb
-        JOIN book_copy bc ON bc.id = gb.book_copy_id
-        WHERE gb.return_date_fact IS NULL
-          AND date(gb.return_date) < date('now')
-          AND bc.status = 'issued'
-        """
-    )
-    for (copy_id,) in cursor.fetchall():
-        cursor.execute("UPDATE book_copy SET status = 'overdue' WHERE id = ?", (copy_id,))
-        log_copy_status(cursor, copy_id, 'issued', 'overdue', 'auto_overdue')
 
 def log_reader_action(cursor, reader_id, action_type, details='', employee_id=None):
     cursor.execute(
@@ -1101,8 +1017,8 @@ def acceptance_acts_handler():
         for _ in range(q):
             uid = f"CP-{act_id}-{book_id}-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
             cursor.execute(
-                "INSERT INTO book_copy (copy_uid, book_id, acceptance_act_id, status, source_type, source_id, received_at) VALUES (?, ?, ?, 'available', 'acceptance_act', ?, CURRENT_TIMESTAMP)",
-                (uid, book_id, act_id, act_id),
+                "INSERT INTO book_copy (copy_uid, book_id, acceptance_act_id, status) VALUES (?, ?, ?, 'available')",
+                (uid, book_id, act_id),
             )
 
     cursor.execute("UPDATE acceptance_act SET status = 'CONFIRMED' WHERE id = ?", (act_id,))
@@ -1193,21 +1109,10 @@ def writeoff_acts_handler():
         if reason not in allowed:
             reason = 'другое'
         cursor.execute(
-            "SELECT book_id, status FROM book_copy WHERE id = ?",
-            (copy_id,),
-        )
-        copy_row = cursor.fetchone()
-        if not copy_row:
-            continue
-        book_id, old_status = copy_row
-        cursor.execute(
             "INSERT INTO writeoff_act_item (act_id, book_copy_id, reason) VALUES (?, ?, ?)",
             (act_id, copy_id, reason),
         )
         cursor.execute("UPDATE book_copy SET status = 'written_off' WHERE id = ?", (copy_id,))
-        if old_status == 'available':
-            cursor.execute("UPDATE book SET quantity = MAX(0, quantity - 1) WHERE id = ?", (book_id,))
-        log_copy_status(cursor, copy_id, old_status, 'written_off', 'writeoff_act', reason)
 
     conn.commit()
     conn.close()
@@ -1219,53 +1124,24 @@ def writeoff_acts_handler():
 def list_book_copies():
     ensure_supply_schema()
     status = request.args.get('status')
-    uid = (request.args.get('uid') or '').strip()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     sql = """
-        SELECT bc.id, bc.copy_uid, bc.status, bc.received_at, bc.source_type, bc.source_id, bc.note,
-               b.name AS book_name,
-               (a.last_name || ' ' || a.first_name || COALESCE(' ' || a.patronymic, '')) AS author
+        SELECT bc.id, bc.copy_uid, bc.status, b.name AS book_name
         FROM book_copy bc
         JOIN book b ON b.id = bc.book_id
-        JOIN author a ON a.id = b.author_id
         WHERE 1=1
     """
     params = []
     if status:
         sql += " AND bc.status = ?"
         params.append(status)
-    if uid:
-        sql += " AND bc.copy_uid LIKE ?"
-        params.append(f"%{uid}%")
     sql += " ORDER BY bc.id DESC LIMIT 500"
     cursor.execute(sql, params)
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
     return jsonify({'success': True, 'copies': rows})
-
-
-@app.route('/api/book-copies/<int:copy_id>/history', methods=['GET'])
-@login_required
-def get_book_copy_history(copy_id):
-    ensure_supply_schema()
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT bch.*, (r.last_name || ' ' || r.first_name || COALESCE(' ' || r.patronymic, '')) AS reader_name
-        FROM book_copy_history bch
-        LEFT JOIN reader r ON r.id = bch.reader_id
-        WHERE bch.book_copy_id = ?
-        ORDER BY bch.id DESC
-        """,
-        (copy_id,)
-    )
-    rows = [dict(r) for r in cursor.fetchall()]
-    conn.close()
-    return jsonify({'success': True, 'history': rows})
 
 
 @app.route('/api/books/all', methods=['GET'])
