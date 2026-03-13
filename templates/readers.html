@@ -21,6 +21,7 @@
                 <li><a href="{{ url_for('books_page') }}"><i class="fas fa-book"></i>Каталог книг</a></li>
                 <li><a href="{{ url_for('readers_page') }}" class="active"><i class="fas fa-users"></i>Читатели</a></li>
                 <li><a href="{{ url_for('transactions_page') }}"><i class="fas fa-exchange-alt"></i>Выдачи/возвраты</a></li>
+                <li><a href="{{ url_for('supplies_page') }}"><i class="fas fa-truck"></i>Поставки</a></li>
                 <li><a href="{{ url_for('reports_page') }}"><i class="fas fa-chart-bar"></i>Отчеты</a></li>
                 {% if role == 'Администратор' %}
                 <li><a href="{{ url_for('settings_page') }}"><i class="fas fa-cog"></i>Настройки</a></li>
@@ -67,7 +68,12 @@
                     </div>
                 </div>
                 <div class="form-row">
-                    <div class="form-group"><label for="address">Адрес проживания*</label><input type="text" id="address" class="form-control" required></div>
+                    <div class="form-group"><label for="city">Город*</label><input type="text" id="city" class="form-control" required></div>
+                    <div class="form-group"><label for="street">Улица*</label><input type="text" id="street" class="form-control" required></div>
+                    <div class="form-group"><label for="house">Дом*</label><input type="text" id="house" class="form-control" required></div>
+                    <div class="form-group"><label for="apartment">Квартира</label><input type="text" id="apartment" class="form-control"></div>
+                </div>
+                <div class="form-row">
                     <div class="form-group"><label for="email">Эл. почта*</label><input type="email" id="email" class="form-control" required></div>
                 </div>
                 <div class="btn-group">
