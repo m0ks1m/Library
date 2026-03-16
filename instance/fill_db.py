@@ -1,4 +1,5 @@
 import sqlite3
+from pathlib import Path
 from datetime import date, timedelta
 
 from config import DB_PATH
@@ -12,7 +13,8 @@ def fill():
         cursor.execute("PRAGMA foreign_keys = ON")
 
         # Создание таблиц
-        with open("instance/script.sql", encoding="utf-8") as sql_script:
+        sql_path = Path(__file__).resolve().parent / "script.sql"
+        with open(sql_path, encoding="utf-8") as sql_script:
             cursor.executescript(sql_script.read())
 
         # Очищаем таблицы, чтобы повторный запуск fill() не плодил дубли
