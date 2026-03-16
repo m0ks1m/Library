@@ -24,7 +24,6 @@ def fill():
             "reader_penalty_history",
             "writeoff_act_item",
             "writeoff_act",
-            "given_book",
             "book_copy",
             "acceptance_act_item",
             "acceptance_act",
@@ -192,7 +191,7 @@ def fill():
                 status,
                 pdn_consent,
                 penalty_points
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             readers,
         )
