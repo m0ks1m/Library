@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Поставщики и поставки</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/icon.png') }}" type="image/x-icon">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+<div class="container">
+    <aside class="sidebar">
+        <div class="sidebar-header"><h2><i class="fas fa-graduation-cap"></i><span>Твердый переплет</span></h2></div>
+        <nav class="sidebar-nav"><ul>
+            <li><a href="{{ url_for('index') }}"><i class="fas fa-tachometer-alt"></i>Главная</a></li>
+            <li><a href="{{ url_for('books_page') }}"><i class="fas fa-book"></i>Каталог книг</a></li>
+            <li><a href="{{ url_for('readers_page') }}"><i class="fas fa-users"></i>Читатели</a></li>
+            <li><a href="{{ url_for('transactions_page') }}"><i class="fas fa-exchange-alt"></i>Выдачи/возвраты</a></li>
+            <li><a href="{{ url_for('supplies_page') }}" class="active"><i class="fas fa-truck"></i>Поставки</a></li>
+            <li><a href="{{ url_for('reports_page') }}"><i class="fas fa-chart-bar"></i>Отчеты</a></li>
+        </ul></nav>
+    </aside>
+    <main class="main-content">
+        <header class="header"><h1>Поставщики и поставки</h1></header>
+
+        <div class="tabs">
+            <div class="tab active" onclick="showTab('suppliers-tab')">Поставщики</div>
+            <div class="tab" onclick="showTab('contracts-tab')">Договоры</div>
+            <div class="tab" onclick="showTab('invoices-tab')">Накладные</div>
+            <div class="tab" onclick="showTab('acceptance-tab')">Акты приёма</div>
+            <div class="tab" onclick="showTab('writeoff-tab')">Акты списания</div>
+        </div>
+
+        <div id="suppliers-tab" class="tab-content">
+            <div class="form-row">
+                <input id="supplier-name" class="form-control" placeholder="Название">
+                <input id="supplier-contact-person" class="form-control" placeholder="Контактное лицо">
+                <input id="supplier-phone" class="form-control" placeholder="+7 (___) ___-__-__">
+                <input id="supplier-email" class="form-control" placeholder="email@example.com">
+            </div>
+            <div class="form-row">
+                <input id="supplier-city" class="form-control" placeholder="Город">
+                <input id="supplier-street" class="form-control" placeholder="Улица">
+                <input id="supplier-house" class="form-control" placeholder="Дом">
+                <input id="supplier-apartment" class="form-control" placeholder="Квартира">
+            </div>
+            <div class="form-row"><input id="supplier-comment" class="form-control" placeholder="Комментарий"></div>
+            <button class="btn btn-primary" onclick="saveSupplier()">Сохранить поставщика</button>
+            <table class="search-results issue-history-table"><thead><tr><th>ID</th><th>Название</th><th>Контакт</th><th>Телефон</th><th>Email</th><th>Адрес</th><th>Статус</th><th></th></tr></thead><tbody id="suppliers-body"></tbody></table>
+        </div>
+
+        <div id="contracts-tab" class="tab-content" style="display:none;">
+            <div class="form-row">
+                <input id="contract-number" class="form-control" placeholder="№ договора">
+                <input id="contract-signed" type="date" class="form-control">
+                <input id="contract-supplier" type="number" class="form-control" placeholder="ID поставщика">
+                <input id="contract-start" type="date" class="form-control">
+                <input id="contract-end" type="date" class="form-control">
+            </div>
+            <div class="form-row"><input id="contract-terms" class="form-control" placeholder="Сумма/условия"><input id="contract-comment" class="form-control" placeholder="Комментарий"></div>
+            <button class="btn btn-primary" onclick="saveContract()">Сохранить договор</button>
+            <pre id="contracts-list"></pre>
+        </div>
+
+        <div id="invoices-tab" class="tab-content" style="display:none;"><pre id="invoices-list"></pre></div>
+        <div id="acceptance-tab" class="tab-content" style="display:none;"><pre id="acceptance-list"></pre></div>
+        <div id="writeoff-tab" class="tab-content" style="display:none;"><pre id="writeoff-list"></pre></div>
+    </main>
+</div>
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script src="{{ url_for('static', filename='js/supplies.js') }}"></script>
+</body>
+</html>

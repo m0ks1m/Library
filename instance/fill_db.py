@@ -1,4 +1,5 @@
 import sqlite3
+from pathlib import Path
 from datetime import date, timedelta
 
 from config import DB_PATH
@@ -12,17 +13,27 @@ def fill():
         cursor.execute("PRAGMA foreign_keys = ON")
 
         # Создание таблиц
-        with open("instance/script.sql", encoding="utf-8") as sql_script:
+        sql_path = Path(__file__).resolve().parent / "script.sql"
+        with open(sql_path, encoding="utf-8") as sql_script:
             cursor.executescript(sql_script.read())
 
         # Очищаем таблицы, чтобы повторный запуск fill() не плодил дубли
         tables_in_delete_order = [
+            "book_copy_history",
             "reader_action_history",
             "reader_penalty_history",
+            "writeoff_act_item",
+            "writeoff_act",
+            "given_book",
+            "book_copy",
+            "acceptance_act_item",
+            "acceptance_act",
+            "supply_invoice_item",
+            "supply_invoice",
+            "supplier_contract",
             "lading_bill",
             "order_request",
             "debiting_act",
-            "given_book",
             "book",
             "genre",
             "author",
@@ -32,7 +43,12 @@ def fill():
             "system_settings",
         ]
 
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        existing_tables = {row[0] for row in cursor.fetchall()}
+
         for table_name in tables_in_delete_order:
+            if table_name not in existing_tables:
+                continue
             cursor.execute(f"DELETE FROM {table_name}")
             cursor.execute("DELETE FROM sqlite_sequence WHERE name = ?", (table_name,))
 
@@ -108,11 +124,16 @@ def fill():
                 "Сидоров",
                 "Алексеевич",
                 "1990-05-15",
-                "г. Москва",
+                "г. Москва, ул. Арбат, д. 7, кв. 15",
+                "Москва",
+                "Арбат",
+                "7",
+                "15",
                 "alex@example.com",
                 "71234567890",
                 str(today - timedelta(days=120)),
                 "ACTIVE",
+                1,
                 0,
             ),
             (
@@ -121,11 +142,16 @@ def fill():
                 "Кузнецова",
                 "Сергеевна",
                 "1985-08-20",
-                "г. Казань",
+                "г. Казань, ул. Кремлевская, д. 2, кв. 8",
+                "Казань",
+                "Кремлевская",
+                "2",
+                "8",
                 "maria@example.com",
                 "79876543210",
                 str(today - timedelta(days=80)),
                 "ACTIVE",
+                0,
                 5,
             ),
             (
@@ -134,11 +160,16 @@ def fill():
                 "Орлов",
                 "Петрович",
                 "1994-11-02",
-                "г. Самара",
+                "г. Самара, ул. Молодогвардейская, д. 14",
+                "Самара",
+                "Молодогвардейская",
+                "14",
+                "",
                 "ilya@example.com",
                 "79997774411",
                 str(today - timedelta(days=35)),
                 "BLOCKED",
+                1,
                 1,
             ),
         ]
@@ -151,27 +182,95 @@ def fill():
                 patronymic,
                 date_birth,
                 address,
+                city,
+                street,
+                house,
+                apartment,
                 email,
                 phone,
                 registered_at,
                 status,
+                pdn_consent,
                 penalty_points
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             readers,
         )
 
         # Поставщики
         suppliers = [
-            ("Книжный мир", "info@knigi.ru", "Сергей Васильев"),
-            ("Литература", "sales@literatura.ru", "Ольга Петрова"),
+            ("Книжный мир", "Сергей Васильев", "74951234567", "info@knigi.ru", "Москва", "Тверская", "10", "12", "Надежный партнер", 1),
+            ("Литература", "Ольга Петрова", "78431234567", "sales@literatura.ru", "Казань", "Баумана", "5", "", "Региональный поставщик", 1),
         ]
         cursor.executemany(
             """
-            INSERT INTO supplier (name, contact, contact_person)
-            VALUES (?, ?, ?)
+            INSERT INTO supplier (name, contact_person, phone, email, city, street, house, apartment, comment, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             suppliers,
+        )
+
+        # Договоры с поставщиками
+        supplier_contracts = [
+            ("D-2026-001", str(today - timedelta(days=90)), 1, str(today - timedelta(days=90)), str(today + timedelta(days=275)), "500000", "Основной договор"),
+            ("D-2026-002", str(today - timedelta(days=45)), 2, str(today - timedelta(days=45)), str(today + timedelta(days=320)), "Поставка по заявкам", "Гибкие условия"),
+        ]
+        cursor.executemany(
+            """
+            INSERT INTO supplier_contract (contract_number, signed_at, supplier_id, start_date, end_date, amount_or_terms, comment)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            supplier_contracts,
+        )
+
+        # Накладные и позиции
+        invoices = [
+            ("INV-001", str(today - timedelta(days=30)), 1, 1, "Иванов И.И.", "Поставка классики", "CONFIRMED"),
+            ("INV-002", str(today - timedelta(days=10)), 2, 2, "Петров П.П.", "Новые издания", "CONFIRMED"),
+        ]
+        cursor.executemany(
+            """
+            INSERT INTO supply_invoice (invoice_number, invoice_date, supplier_id, contract_id, responsible_person, comment, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            invoices,
+        )
+        cursor.executemany(
+            """
+            INSERT INTO supply_invoice_item (invoice_id, book_id, quantity, unit_price)
+            VALUES (?, ?, ?, ?)
+            """,
+            [
+                (1, 1, 3, 450.0),
+                (1, 2, 2, 500.0),
+                (2, 3, 4, 350.0),
+                (2, 4, 3, 620.0),
+            ],
+        )
+
+        # Акты приема и позиции
+        acceptance_acts = [
+            ("ACC-001", str(today - timedelta(days=28)), 1, 1, "Иванов И.И.", "Принято без замечаний", "CONFIRMED"),
+            ("ACC-002", str(today - timedelta(days=9)), 2, 2, "Петров П.П.", "Частичная поставка", "CONFIRMED"),
+        ]
+        cursor.executemany(
+            """
+            INSERT INTO acceptance_act (act_number, act_date, supplier_id, contract_id, responsible_person, comment, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            acceptance_acts,
+        )
+        cursor.executemany(
+            """
+            INSERT INTO acceptance_act_item (act_id, book_id, quantity, unit_price)
+            VALUES (?, ?, ?, ?)
+            """,
+            [
+                (1, 1, 3, 450.0),
+                (1, 2, 2, 500.0),
+                (2, 3, 2, 350.0),
+                (2, 4, 2, 620.0),
+            ],
         )
 
         # Системные настройки
@@ -211,6 +310,34 @@ def fill():
             """,
             given_books,
         )
+
+
+        # Экземпляры книг
+        book_copies = [
+            ("CP-0001", 1, 1, "issued", "acceptance_act", 1, str(today - timedelta(days=28)), "На руках у читателя"),
+            ("CP-0002", 1, 1, "available", "acceptance_act", 1, str(today - timedelta(days=28)), ""),
+            ("CP-0003", 1, 1, "damaged", "acceptance_act", 1, str(today - timedelta(days=28)), "Нужен ремонт"),
+            ("CP-0004", 2, 1, "overdue", "acceptance_act", 1, str(today - timedelta(days=28)), "Просроченный возврат"),
+            ("CP-0005", 2, 1, "available", "acceptance_act", 1, str(today - timedelta(days=28)), ""),
+            ("CP-0006", 3, 2, "lost", "acceptance_act", 2, str(today - timedelta(days=9)), "Утеряно читателем"),
+            ("CP-0007", 3, 2, "available", "acceptance_act", 2, str(today - timedelta(days=9)), ""),
+            ("CP-0008", 4, 2, "written_off", "acceptance_act", 2, str(today - timedelta(days=9)), "Списано"),
+            ("CP-0009", 4, 2, "processing", "acceptance_act", 2, str(today - timedelta(days=9)), "На реставрации"),
+            ("CP-0010", 4, 2, "reserved", "acceptance_act", 2, str(today - timedelta(days=9)), "Забронировано"),
+        ]
+        cursor.executemany(
+            """
+            INSERT INTO book_copy (copy_uid, book_id, acceptance_act_id, status, source_type, source_id, received_at, note)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            book_copies,
+        )
+
+        # Привязка активных выдач к экземплярам
+        cursor.execute("UPDATE given_book SET book_copy_id = 1 WHERE id = 1")
+        cursor.execute("UPDATE given_book SET book_copy_id = 5 WHERE id = 2")
+        cursor.execute("UPDATE given_book SET book_copy_id = 7 WHERE id = 3")
+        cursor.execute("UPDATE given_book SET book_copy_id = 4 WHERE id = 4")
 
         # Заявки на заказ
         order_requests = [
@@ -292,6 +419,23 @@ def fill():
             ) VALUES (?, ?, ?, ?, ?)
             """,
             reader_actions,
+        )
+
+
+        # Акты списания (по экземплярам)
+        cursor.execute(
+            """
+            INSERT INTO writeoff_act (act_number, act_date, basis, responsible_person, comment, status)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("WO-001", str(today - timedelta(days=5)), "Износ фонда", "Смирнов Д.О.", "Списание поврежденного экземпляра", "CONFIRMED"),
+        )
+        cursor.execute(
+            """
+            INSERT INTO writeoff_act_item (act_id, book_copy_id, reason)
+            VALUES (?, ?, ?)
+            """,
+            (1, 8, "износ"),
         )
 
         conn.commit()
